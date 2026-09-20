@@ -14,14 +14,14 @@ apktool project (smali/, smali_classes2/, res/, assets/, lib/)
 | | |
 | --- | --- |
 | File | `dist/JVHD.apk` |
-| SHA-256 | `92cb785134040d97047af492ee033813665cda9cae1d625ca103db45d5baecf3` |
-| Size | 910,644 bytes |
+| SHA-256 | `773a44f92fb9ff9bf5041bf80162e686a0507546eedcfeb9c62818ca8847c450` |
+| Size | 914,740 bytes |
 | applicationId | `com.bintv.launcher` |
 | Launcher activity | `com.bintv.launcher.MainActivity` |
 | minSdk / targetSdk | 21 / 33 (landscape) |
 | App label | `JVHD Vip2` (`application-label` in the compiled manifest) |
 | Signature | APK Signature Scheme v1 + v2 + v3 (debug key `jvhddebug`) |
-| Source commit | `855548716cf73df3199767599de5131a68aaa2e3` |
+| Source commit | `889cf736cf0b0b5d646f2a6b92142b19ab624460` |
 
 `build-info.txt` holds the toolchain versions and the full verification output
 of this exact file.

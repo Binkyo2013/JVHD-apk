@@ -1,7 +1,7 @@
 JVHD.apk build provenance
 repo:     Binkyo2013/JVHD-apk
-commit:   855548716cf73df3199767599de5131a68aaa2e3
-built:    2026-09-20T13:55:06Z
+commit:   889cf736cf0b0b5d646f2a6b92142b19ab624460
+built:    2026-09-20T14:00:46Z
 
 == toolchain ==
 JDK:       openjdk version "17.0.9" 2023-10-17
@@ -13,11 +13,12 @@ aapt2:     prebuilt/linux/aapt2_64 extracted from the apktool jar
 == pipeline ==
 bash scripts/build-apk.sh  ->  build/outputs/apk/JVHD.apk  ->  dist/JVHD.apk
 
-== what changed in this build ==
+== what changed since the previous dist/JVHD.apk (8739ef17) ==
   app_name            : JVHD -> JVHD Vip2   (res/values/strings.xml)
-  assets/index.html   : <title>JVHD -> JVHD Vip2
-  assets/app.js       : /config retry (JVHD_CONFIG_RETRY_COUNT=2) + error panel
-                        with a 'Thu lai' button instead of cancel + toast
+  assets/index.html   : <title> JVHD Vip2 + window.onerror startup overlay
+  assets/app.js       : /config retry (JVHD_CONFIG_RETRY_COUNT=2), error panel
+                        with a 'Thu lai' button instead of cancel + toast, and
+                        the __BINTV_JVHD_READY__ startup flag
   MainActivity.smali  : onCreate WebView bring-up wrapped in a catch-all that
                         shows a native error screen; onKeyDown guards the
                         lateinit webView
@@ -25,22 +26,28 @@ bash scripts/build-apk.sh  ->  build/outputs/apk/JVHD.apk  ->  dist/JVHD.apk
                         (classes.dex now defines 838 classes, was 837)
   unchanged           : applicationId com.bintv.launcher, launcher activity,
                         minSdk 21 / targetSdk 33, landscape, MediaProxyServer,
-                        TizenBridge, BtK, libbtcore.so (arm64-v8a + armeabi-v7a)
+                        TizenBridge, BtK, libbtcore.so (arm64-v8a + armeabi-v7a),
+                        assets/style.css, JVHD module, MOVIE_CONFIG_URL
+
+== reproducibility ==
+A clean clone of main rebuilt with the same script and toolchain produced a
+byte-identical file for the previous dist/JVHD.apk (cmp reported no
+difference), so this pipeline is deterministic on this toolchain.
 
 == verification of the exact shipped file (dist/JVHD.apk) ==
 APK: dist/JVHD.apk
-size: 910644 bytes
-sha256: 92cb785134040d97047af492ee033813665cda9cae1d625ca103db45d5baecf3
+size: 914740 bytes
+sha256: 773a44f92fb9ff9bf5041bf80162e686a0507546eedcfeb9c62818ca8847c450
 APK: dist/JVHD.apk
-size: 910644 bytes
-sha256: 92cb785134040d97047af492ee033813665cda9cae1d625ca103db45d5baecf3
+size: 914740 bytes
+sha256: 773a44f92fb9ff9bf5041bf80162e686a0507546eedcfeb9c62818ca8847c450
 
 [1] Required APK entries
   [ OK ] AndroidManifest.xml (4216 bytes)
   [ OK ] resources.arsc (2376 bytes)
   [ OK ] classes.dex (1863388 bytes)
   [ OK ] classes2.dex (15260 bytes)
-  [ OK ] assets/app.js (484272 bytes)
+  [ OK ] assets/app.js (484947 bytes)
   [ OK ] lib/arm64-v8a/libbtcore.so (5112 bytes)
   [ OK ] lib/armeabi-v7a/libbtcore.so (3368 bytes)
 
@@ -59,7 +66,7 @@ sha256: 92cb785134040d97047af492ee033813665cda9cae1d625ca103db45d5baecf3
   [ OK ] Lcom/bintv/launcher/BtK; -> classes.dex
 
 [4] Byte identity with the checked-in sources
-  [ OK ] assets/app.js sha256=8c36958c81b75183... (identical to assets/app.js)
+  [ OK ] assets/app.js sha256=3bc9470612a4856d... (identical to assets/app.js)
   [ OK ] kotlin/kotlin.kotlin_builtins sha256=0633ac9c37e96556... (identical to kotlin/kotlin.kotlin_builtins)
   [ OK ] kotlin-tooling-metadata.json sha256=3dc584210c18f884... (identical to unknown/kotlin-tooling-metadata.json)
   [ OK ] lib/arm64-v8a/libbtcore.so sha256=fe73808fda45c752... (identical to lib/arm64-v8a/libbtcore.so)
@@ -86,7 +93,7 @@ sha256: 92cb785134040d97047af492ee033813665cda9cae1d625ca103db45d5baecf3
 
 ================ VERIFICATION SUMMARY ================
 APK            : dist/JVHD.apk
-SHA-256        : 92cb785134040d97047af492ee033813665cda9cae1d625ca103db45d5baecf3
+SHA-256        : 773a44f92fb9ff9bf5041bf80162e686a0507546eedcfeb9c62818ca8847c450
 failures       : 0
 RESULT: PASSED
 
@@ -134,12 +141,21 @@ targetSdkVersion:'33'
 application-label:'JVHD Vip2'
 launchable-activity: name='com.bintv.launcher.MainActivity'  label='' icon=''
 
-== headless UI regression test (jsdom driving the real assets/app.js) ==
-  scenario A: /config always fails  -> gate stays, error panel + 'Thu lai', 3 attempts, BACK opens exit dialog
-  scenario B: 'Thu lai' after the server warms up -> JVHD screen opens
-  scenario C: one transient failure -> absorbed by the automatic retry
-  scenario D: 'Huy' on the error panel -> explicit user exit
-  result: 21/21 checks passed
+== exit paths audited (no automatic self-exit) ==
+closeBinTVApplication() has exactly 2 call sites, both inside the exit-dialog
+button handlers (assets/app.js: 'scan' -> scanAndExitBinTV, 'exit' ->
+exitBinTV). It reaches AndroidBridge.exitApp() ->
+TizenBridge.exitApp$lambda$5 -> finishAffinity() + System.exit(0). No timer,
+no /config failure path and no startup path reaches it, so leaving the app is
+always a user action.
+
+== headless UI regression test (jsdom driving the real assets/index.html + app.js) ==
+  A: /config always fails   -> gate stays, error panel + 'Thu lai', 3 attempts, BACK opens exit dialog
+  B: 'Thu lai' after warm-up -> JVHD screen opens
+  C: one transient failure  -> absorbed by the automatic retry
+  D: 'Huy' on the error panel -> explicit user exit
+  E: startup JS error       -> visible overlay; post-startup errors ignored
+  result: 28/28 checks passed
 
 == NOT verified (no physical Android device available) ==
   - real cold-start behaviour against https://jvhd-server.onrender.com

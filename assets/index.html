@@ -21,6 +21,56 @@
         /* [BinTV JVHD-STANDALONE 2026-08] Đánh dấu chế độ JVHD độc lập cho app.js:
            khởi động thẳng JVHD, bỏ qua toàn bộ khởi tạo của BinTV. */
         window.__BINTV_JVHD_STANDALONE__ = true;
+
+        /* [JVHD-VIP2 2026-09] WebView có nền đen, nên nếu app.js lỗi lúc khởi động
+           (cú pháp không được WebView cũ hỗ trợ, hoặc exception trong init) thì
+           người dùng chỉ thấy một màn hình đen và tưởng ứng dụng tự thoát.
+           Handler này vẽ một thông báo nhìn thấy được kèm nút "Thử lại".
+           QUAN TRỌNG: chỉ can thiệp khi ứng dụng CHƯA khởi động xong
+           (__BINTV_JVHD_READY__ chưa được app.js bật), để một lỗi nhỏ phát sinh
+           sau đó không bao giờ biến thành màn hình báo lỗi toàn màn hình. */
+        (function () {
+            function showFatal(message) {
+                try {
+                    var box = document.getElementById("bintv-js-fatal");
+                    if (!box) {
+                        box = document.createElement("div");
+                        box.id = "bintv-js-fatal";
+                        box.style.cssText = "position:fixed;top:0;left:0;right:0;bottom:0;z-index:2147483647;" +
+                            "display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;" +
+                            "background:#07070a;color:#ffffff;font-family:sans-serif;text-align:center;padding:48px;";
+                        (document.body || document.documentElement).appendChild(box);
+                    }
+                    while (box.firstChild) box.removeChild(box.firstChild);
+                    var title = document.createElement("div");
+                    title.style.cssText = "font-size:26px;";
+                    title.textContent = "JVHD Vip2 gặp lỗi khi khởi động";
+                    var detail = document.createElement("div");
+                    detail.style.cssText = "font-size:18px;color:#ff9b9b;white-space:pre-wrap;";
+                    detail.textContent = String(message || "");
+                    var button = document.createElement("button");
+                    button.type = "button";
+                    button.textContent = "Thử lại";
+                    button.style.cssText = "padding:12px 30px;font-size:20px;border-radius:10px;" +
+                        "border:2px solid #2f6bff;background:#2f6bff;color:#ffffff;";
+                    button.onclick = function () { window.location.reload(); };
+                    box.appendChild(title);
+                    box.appendChild(detail);
+                    box.appendChild(button);
+                } catch (renderError) {}
+            }
+
+            window.onerror = function (message, source, line, column, error) {
+                if (window.__BINTV_JVHD_READY__) return false; // app đang chạy: không chặn
+                showFatal((message || "Lỗi không xác định") + (line ? "\n(dòng " + line + ")" : ""));
+                return true;
+            };
+
+            window.addEventListener("unhandledrejection", function (event) {
+                if (window.__BINTV_JVHD_READY__) return;
+                showFatal("Lỗi bất đồng bộ: " + String((event && event.reason) || ""));
+            });
+        })();
     </script>
 </head>
 

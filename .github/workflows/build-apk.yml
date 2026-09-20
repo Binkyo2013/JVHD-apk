@@ -52,6 +52,8 @@ jobs:
       - name: Verify APK contents
         run: |
           test -f build/outputs/apk/JVHD.apk
+          "$ANDROID_HOME/build-tools/${ANDROID_BUILD_TOOLS}/aapt2" dump badging build/outputs/apk/JVHD.apk | grep -q "package: name='com.bintv.launcher'"
+          "$ANDROID_HOME/build-tools/${ANDROID_BUILD_TOOLS}/aapt2" dump badging build/outputs/apk/JVHD.apk | grep -q "launchable-activity: name='com.bintv.launcher.MainActivity'"
           unzip -l build/outputs/apk/JVHD.apk | tee apk-contents.txt
           unzip -l build/outputs/apk/JVHD.apk | grep -q 'classes.dex'
           unzip -l build/outputs/apk/JVHD.apk | grep -q 'classes2.dex'

@@ -1,0 +1,110 @@
+JVHD.apk build provenance
+repo:     Binkyo2013/JVHD-apk
+commit:   9757d479f0f86b0db1e472530b4f8e455fee7e5b
+built:    2026-09-20T12:44:06Z
+
+== toolchain ==
+JDK:       openjdk version "17.0.9" 2023-10-17
+apktool:   2.9.3 (apktool 2.10.0 source inspected: identical lib/kotlin handling)
+zipalign:  Zip alignment utility
+apksigner: 0.9
+
+== pipeline ==
+bash scripts/build-apk.sh  ->  build/outputs/apk/JVHD.apk
+
+== verification of the exact shipped file (dist/JVHD.apk) ==
+APK: dist/JVHD.apk
+size: 899647 bytes
+sha256: 8739ef1743b8bdc517229704d5452c7dd7f2490ebdf1276d9de97e1dcd24f643
+
+[1] Required APK entries
+  [ OK ] AndroidManifest.xml (4216 bytes)
+  [ OK ] resources.arsc (2368 bytes)
+  [ OK ] classes.dex (1861980 bytes)
+  [ OK ] classes2.dex (15260 bytes)
+  [ OK ] assets/app.js (475116 bytes)
+  [ OK ] lib/arm64-v8a/libbtcore.so (5112 bytes)
+  [ OK ] lib/armeabi-v7a/libbtcore.so (3368 bytes)
+
+[2] DEX partitions vs Smali sources
+  [ OK ] classes.dex: dex v035 file_size=1861980 header_size=112 endian=0x12345678
+  [ OK ] classes.dex defines all 837 classes of smali/
+        class definitions in classes.dex: 837
+  [ OK ] classes2.dex: dex v035 file_size=15260 header_size=112 endian=0x12345678
+  [ OK ] classes2.dex defines all 8 classes of smali_classes2/
+        class definitions in classes2.dex: 8
+
+[3] Mandated launcher classes
+  [ OK ] Lcom/bintv/launcher/MainActivity; -> classes.dex
+  [ OK ] Lcom/bintv/launcher/TizenBridge; -> classes.dex
+  [ OK ] Lcom/bintv/launcher/MediaProxyServer; -> classes.dex
+  [ OK ] Lcom/bintv/launcher/BtK; -> classes.dex
+
+[4] Byte identity with the checked-in sources
+  [ OK ] assets/app.js sha256=b4c30aabf77b9e19... (identical to assets/app.js)
+  [ OK ] kotlin/kotlin.kotlin_builtins sha256=0633ac9c37e96556... (identical to kotlin/kotlin.kotlin_builtins)
+  [ OK ] kotlin-tooling-metadata.json sha256=3dc584210c18f884... (identical to unknown/kotlin-tooling-metadata.json)
+  [ OK ] lib/arm64-v8a/libbtcore.so sha256=fe73808fda45c752... (identical to lib/arm64-v8a/libbtcore.so)
+  [ OK ] lib/armeabi-v7a/libbtcore.so sha256=7501f2267b4d00cd... (identical to lib/armeabi-v7a/libbtcore.so)
+  [ OK ] all assets/ files packaged byte-identically
+  [ OK ] all kotlin/ Kotlin-builtin files packaged
+
+[5] Zip alignment (zipalign)
+        stored (uncompressed) entries: 3 of 35
+  [ OK ] every stored entry is 4-byte aligned
+  [ OK ] 2 shared object(s) page (4096) aligned
+
+[6] Compiled manifest identity (aapt badging)
+  [ OK ] applicationId: package: name='com.bintv.launcher'
+  [ OK ] launcher activity: launchable-activity: name='com.bintv.launcher.MainActivity'
+  [ OK ] minSdkVersion: sdkVersion:'21'
+  [ OK ] targetSdkVersion: targetSdkVersion:'33'
+
+[7] Signature artefact
+  [ OK ] apksigner: Verifies
+  [ OK ] APK Signature Scheme v1: true
+  [ OK ] APK Signature Scheme v2: true
+  [ OK ] APK Signature Scheme v3: true
+
+================ VERIFICATION SUMMARY ================
+APK            : dist/JVHD.apk
+SHA-256        : 8739ef1743b8bdc517229704d5452c7dd7f2490ebdf1276d9de97e1dcd24f643
+failures       : 0
+RESULT: PASSED
+
+original APK entries recorded in original/META-INF/MANIFEST.MF: 32
+  [core] AndroidManifest.xml: recompiled by the build (digest changes by design)
+  [ OK ] assets/JVHD.png: digest identical to the original APK
+  [core] assets/app.js: intentionally migrated to the JVHD backend (checked-in file is authoritative)
+  [ OK ] assets/hls.min.js: digest identical to the original APK
+  [ OK ] assets/index.html: digest identical to the original APK
+  [ OK ] assets/style.css: digest identical to the original APK
+  [ OK ] assets/tizen_shim.js: digest identical to the original APK
+  [core] classes.dex: recompiled by the build (digest changes by design)
+  [core] classes2.dex: recompiled by the build (digest changes by design)
+  [ OK ] kotlin-tooling-metadata.json: digest identical to the original APK
+  [ OK ] kotlin/annotation/annotation.kotlin_builtins: digest identical to the original APK
+  [ OK ] kotlin/collections/collections.kotlin_builtins: digest identical to the original APK
+  [ OK ] kotlin/coroutines/coroutines.kotlin_builtins: digest identical to the original APK
+  [ OK ] kotlin/internal/internal.kotlin_builtins: digest identical to the original APK
+  [ OK ] kotlin/kotlin.kotlin_builtins: digest identical to the original APK
+  [ OK ] kotlin/ranges/ranges.kotlin_builtins: digest identical to the original APK
+  [ OK ] kotlin/reflect/reflect.kotlin_builtins: digest identical to the original APK
+  [ OK ] lib/arm64-v8a/libbtcore.so: digest identical to the original APK
+  [ OK ] lib/armeabi-v7a/libbtcore.so: digest identical to the original APK
+  [core] res/drawable/ic_launcher_foreground.png: source kept, re-optimised by aapt2 at build time
+  [core] res/drawable/tv_banner.png: source kept, re-optimised by aapt2 at build time
+  [core] res/mipmap-hdpi/ic_launcher.png: source kept, re-optimised by aapt2 at build time
+  [core] res/mipmap-hdpi/ic_launcher_round.png: source kept, re-optimised by aapt2 at build time
+  [core] res/mipmap-mdpi/ic_launcher.png: source kept, re-optimised by aapt2 at build time
+  [core] res/mipmap-mdpi/ic_launcher_round.png: source kept, re-optimised by aapt2 at build time
+  [core] res/mipmap-xhdpi/ic_launcher.png: source kept, re-optimised by aapt2 at build time
+  [core] res/mipmap-xhdpi/ic_launcher_round.png: source kept, re-optimised by aapt2 at build time
+  [core] res/mipmap-xxhdpi/ic_launcher.png: source kept, re-optimised by aapt2 at build time
+  [core] res/mipmap-xxhdpi/ic_launcher_round.png: source kept, re-optimised by aapt2 at build time
+  [core] res/mipmap-xxxhdpi/ic_launcher.png: source kept, re-optimised by aapt2 at build time
+  [core] res/mipmap-xxxhdpi/ic_launcher_round.png: source kept, re-optimised by aapt2 at build time
+  [core] resources.arsc: recompiled by the build (digest changes by design)
+
+identical: 15/32   recompiled: 17   missing: 0   new entries: 3
+RESULT: PASSED (original assets, resources images, Kotlin builtins and native libraries preserved)

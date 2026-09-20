@@ -32,7 +32,21 @@ BUILD_OPTIMISED_PREFIXES = ("res/",)
 # verify_apk.py instead.
 # assets/index.html carries the app display name in <title>, which was renamed
 # to "JVHD Vip2" together with res/values/strings.xml.
-EXPECTED_CHANGED = {"assets/app.js", "assets/index.html"}
+# assets/tizen_shim.js only changed its fallback appId string with the package
+# rename (com.bintv.launcher -> com.JVHD.vip); the checked-in file is
+# authoritative and is verified byte-for-byte by verify_apk.py.
+# lib/*/libbtcore.so keep every byte of the original libraries except the JNI
+# export name, which must encode the new package
+# (Java_com_bintv_launcher_... -> Java_com_JVHD_vip_...); the rename is done by
+# scripts/patch_btcore_jni.py, which also rebuilds both ELF hash tables and
+# simulates the dynamic linker's lookup to prove the new export resolves.
+EXPECTED_CHANGED = {
+    "assets/app.js": "intentionally migrated to the JVHD backend (checked-in file is authoritative)",
+    "assets/index.html": "intentionally migrated to the JVHD backend (checked-in file is authoritative)",
+    "assets/tizen_shim.js": "fallback appId renamed with the package to com.JVHD.vip (checked-in file is authoritative)",
+    "lib/arm64-v8a/libbtcore.so": "JNI export renamed for com.JVHD.vip by scripts/patch_btcore_jni.py, hash tables rebuilt + lookup verified",
+    "lib/armeabi-v7a/libbtcore.so": "JNI export renamed for com.JVHD.vip by scripts/patch_btcore_jni.py, hash tables rebuilt + lookup verified",
+}
 
 
 def parse_manifest(path: str) -> dict[str, str]:
@@ -94,7 +108,7 @@ def main() -> int:
             print(f"  [core] {name}: source kept, re-optimised by aapt2 at build time")
         elif name in EXPECTED_CHANGED:
             recompiled += 1
-            print(f"  [core] {name}: intentionally migrated to the JVHD backend (checked-in file is authoritative)")
+            print(f"  [core] {name}: {EXPECTED_CHANGED[name]}")
         else:
             failures.append(f"{name}: content changed ({actual} != {digest})")
             print(f"  [FAIL] {name}: content changed ({actual} != {digest})")

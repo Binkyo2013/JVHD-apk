@@ -1,6 +1,6 @@
 # JVHD-apk
 
-Android TV launcher (`com.bintv.launcher`) packaged as `JVHD.apk`.
+Android TV launcher (`com.JVHD.vip`) packaged as `JVHD.apk`.
 
 The repository is the **decompiled apktool project** of the app, not an Android
 Studio project. The build therefore assembles the checked-in Smali sources into
@@ -82,15 +82,15 @@ Or copy `JVHD.apk` to a USB stick and install it with a file manager on the TV
 
 | Item | Value |
 | --- | --- |
-| applicationId | `com.bintv.launcher` |
-| launcher activity | `com.bintv.launcher.MainActivity` (LAUNCHER + LEANBACK_LAUNCHER) |
+| applicationId | `com.JVHD.vip` |
+| launcher activity | `com.JVHD.vip.MainActivity` (LAUNCHER + LEANBACK_LAUNCHER) |
 | minSdk / targetSdk | 21 / 33 |
 | orientation | landscape |
 | DEX | `classes.dex` (from `smali/`), `classes2.dex` (from `smali_classes2/`) |
 
-Verified classes in the DEX files: `com.bintv.launcher.MainActivity`,
-`com.bintv.launcher.TizenBridge`, `com.bintv.launcher.MediaProxyServer`,
-`com.bintv.launcher.BtK`.
+Verified classes in the DEX files: `com.JVHD.vip.MainActivity`,
+`com.JVHD.vip.TizenBridge`, `com.JVHD.vip.MediaProxyServer`,
+`com.JVHD.vip.BtK`.
 
 Native libraries are **never rebuilt or modified**: `lib/arm64-v8a/libbtcore.so`
 and `lib/armeabi-v7a/libbtcore.so` are copied byte-for-byte into the APK

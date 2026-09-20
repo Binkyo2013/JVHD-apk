@@ -147,7 +147,7 @@ import re, sys
 path = sys.argv[1]
 with open(path, encoding='utf-8') as handle:
     text = handle.read()
-# The checked-in AndroidManifest.xml (package com.bintv.launcher) is
+# The checked-in AndroidManifest.xml (package com.JVHD.vip) is
 # authoritative.  The historical renameManifestPackage entry would overwrite it
 # with the old com.bintv.jvhd application id, so it is dropped here as well as in
 # the checked-in apktool.yml.

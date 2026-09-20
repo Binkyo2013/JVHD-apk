@@ -39,6 +39,13 @@
     // private Member/Hash4/TargetUrl stores directly.
     var JVHD_CONFIG_URL = JVHD_SERVER_BASE + "/config";
     var JVHD_REQUEST_TIMEOUT = 12000;
+    // [JVHD-VIP2 2026-09] Số lần gọi lại /config khi thất bại tạm thời. Render
+    // free tier cold-start có thể mất vài chục giây, nên 2 lần gọi lại (tổng 3
+    // lần) với backoff 0.4s -> 0.8s vẫn chưa đủ; vì vậy ngoài retry tự động còn
+    // có nút "Thử lại" để người dùng chủ động gọi lại vô hạn.
+    var JVHD_CONFIG_RETRY_COUNT = 2;
+    var jvhdPinErrorOpen = false;
+    var jvhdPinErrorFocus = 0;
     var JVHD_RESOLVE_TIMEOUT = 32000;
     var JVHD_MAX_RESOLVE_PAGES = 8;
     var JVHD_DEFAULT_PIN = "1994";
@@ -539,35 +546,66 @@
     var WEATHER_CACHE_TTL = 20 * 60 * 1000;
     var WEATHER_FALLBACK_URL = "https://wttr.in/21.181088,105.660672?format=j1&lang=vi";
 
-    function requestJson(url, timeout, success, failure) {
-        var xhr = new XMLHttpRequest();
-        var finished = false;
-        var timer = null;
+    // [JVHD-VIP2 2026-09] `retries` (tùy chọn, mặc định 0) cho phép gọi lại khi
+    // yêu cầu thất bại tạm thời. Host free (Render) có thể "ngủ lạnh" nên lần
+    // gọi đầu tiên thường timeout/5xx trong lúc máy chủ khởi động. Không truyền
+    // tham số này thì hành vi giống hệt bản cũ: gọi đúng một lần.
+    function isTransientRequestError(error) {
+        var detail = String((error && error.message) || "");
+        if (detail.indexOf("HTTP ") === 0) {
+            var status = parseInt(detail.substring(5), 10) || 0;
+            // 408/429/5xx là lỗi tạm thời; các mã 4xx còn lại (401/403/404) là
+            // lỗi thật, gọi lại cũng không ích gì.
+            return status === 408 || status === 429 || status >= 500;
+        }
+        // "Network error", "Request timeout", lỗi parse JSON: đều đáng thử lại.
+        return true;
+    }
 
-        function finishOk(data) {
-            if (finished) return; finished = true;
-            if (timer) clearTimeout(timer); success(data);
+    function requestJson(url, timeout, success, failure, retries) {
+        var attemptsLeft = (typeof retries === "number" && retries > 0) ? Math.floor(retries) : 0;
+        var attemptsTotal = attemptsLeft;
+
+        function run(left) {
+            var xhr = new XMLHttpRequest();
+            var finished = false;
+            var timer = null;
+
+            function finishOk(data) {
+                if (finished) return; finished = true;
+                if (timer) clearTimeout(timer); success(data);
+            }
+
+            function finishFail(error) {
+                if (finished) return; finished = true;
+                if (timer) clearTimeout(timer);
+                error = error || new Error("Network request failed");
+                if (left > 0 && isTransientRequestError(error)) {
+                    var used = attemptsTotal - left;              // 0, 1, 2 ...
+                    var wait = Math.min(400 * Math.pow(2, used), 3200);
+                    setTimeout(function () { run(left - 1); }, wait);
+                    return;
+                }
+                failure(error);
+            }
+
+            xhr.onreadystatechange = function () {
+                if (xhr.readyState !== 4) return;
+                if (xhr.status < 200 || xhr.status >= 300) { finishFail(new Error("HTTP " + xhr.status)); return; }
+                try { finishOk(JSON.parse(xhr.responseText)); } catch (e) { finishFail(e); }
+            };
+
+            xhr.onerror = function () { finishFail(new Error("Network error")); };
+            xhr.ontimeout = function () { finishFail(new Error("Request timeout")); };
+
+            try {
+                xhr.open("GET", url, true); xhr.timeout = timeout || 8000;
+                timer = setTimeout(function () { try { xhr.abort(); } catch (e) {} finishFail(new Error("Request timeout")); }, (timeout || 8000) + 500);
+                xhr.send();
+            } catch (e) { finishFail(e); }
         }
 
-        function finishFail(error) {
-            if (finished) return; finished = true;
-            if (timer) clearTimeout(timer); failure(error || new Error("Network request failed"));
-        }
-
-        xhr.onreadystatechange = function () {
-            if (xhr.readyState !== 4) return;
-            if (xhr.status < 200 || xhr.status >= 300) { finishFail(new Error("HTTP " + xhr.status)); return; }
-            try { finishOk(JSON.parse(xhr.responseText)); } catch (e) { finishFail(e); }
-        };
-
-        xhr.onerror = function () { finishFail(new Error("Network error")); };
-        xhr.ontimeout = function () { finishFail(new Error("Request timeout")); };
-
-        try {
-            xhr.open("GET", url, true); xhr.timeout = timeout || 8000;
-            timer = setTimeout(function () { try { xhr.abort(); } catch (e) {} finishFail(new Error("Request timeout")); }, (timeout || 8000) + 500);
-            xhr.send();
-        } catch (e) { finishFail(e); }
+        run(attemptsLeft);
     }
 
     function ensureWeatherElement() {
@@ -1343,7 +1381,9 @@
         modal = document.createElement("div"); modal.id = "bintv-exit-modal";
         // [BinTV JVHD-STANDALONE 2026-08] Bản độc lập dùng tên JVHD trên hộp
         // thoại thoát (bản BinTV gốc giữ nguyên chữ BinTV như cũ).
-        var exitBrand = BINTV_JVHD_STANDALONE ? "JVHD" : "BinTV";
+        // [JVHD-VIP2 2026-09] Bản độc lập đã đổi tên ứng dụng thành "JVHD Vip2"
+        // (khớp @string/app_name), nên hộp thoại thoát dùng đúng tên mới.
+        var exitBrand = BINTV_JVHD_STANDALONE ? "JVHD Vip2" : "BinTV";
         modal.innerHTML = '<div class="bintv-exit-backdrop"></div><div class="bintv-exit-dialog" role="dialog" aria-modal="true"><div class="bintv-exit-title">Thoát ' + exitBrand + '?</div><div class="bintv-exit-message">Quét dọn ' + exitBrand + ' và đóng các ứng dụng đã mở, hoặc chỉ thoát ' + exitBrand + '.</div><div class="bintv-exit-actions"><button type="button" class="bintv-exit-button" data-exit-action="scan">Quét</button><button type="button" class="bintv-exit-button" data-exit-action="exit">Thoát</button><button type="button" class="bintv-exit-button" data-exit-action="cancel">Hủy</button></div></div>';
         document.body.appendChild(modal);
         var controls = modal.querySelectorAll(".bintv-exit-button");
@@ -8125,6 +8165,18 @@
                     '<button type="button" class="jvhd-pin-key" data-pin-value="0">0</button>' +
                     '<button type="button" class="jvhd-pin-key jvhd-pin-cancel" data-pin-action="cancel">Hủy</button>' +
                 '</div>' +
+                /* [JVHD-VIP2 2026-09] Panel lỗi /config: giữ nguyên cổng PIN và
+                   cho phép "Thử lại" thay vì tự đóng ứng dụng khi máy chủ chưa
+                   sẵn sàng (Render free cold-start). Dùng style nội tuyến để
+                   không phải sửa style.css - file đó phải giữ nguyên digest so
+                   với APK gốc. */
+                '<div id="bintv-jvhd-pin-error" hidden style="margin-top:18px;text-align:center;">' +
+                    '<div id="bintv-jvhd-pin-error-message" style="color:#ff9b9b;font-size:20px;line-height:1.45;margin-bottom:16px;white-space:pre-wrap;"></div>' +
+                    '<div style="display:flex;gap:14px;justify-content:center;">' +
+                        '<button type="button" class="jvhd-pin-error-button" data-pin-error-action="retry" style="padding:12px 30px;font-size:20px;border-radius:10px;border:2px solid #2f6bff;background:#2f6bff;color:#ffffff;">Thử lại</button>' +
+                        '<button type="button" class="jvhd-pin-error-button" data-pin-error-action="cancel" style="padding:12px 30px;font-size:20px;border-radius:10px;border:2px solid #4a4a55;background:transparent;color:#cfcfd8;">Hủy</button>' +
+                    '</div>' +
+                '</div>' +
                 '<div class="jvhd-pin-help">←/→/↑/↓: Chọn · OK: Nhập · BACK: Hủy</div>' +
             '</div>';
         document.body.appendChild(gate);
@@ -8138,6 +8190,16 @@
                 activateJvhdPinControl(this);
             });
         }
+        // [JVHD-VIP2 2026-09] Nút của panel lỗi dùng class riêng để không lọt vào
+        // lưới phím số 3 cột ở trên (handleJvhdPinKey đếm ".jvhd-pin-key").
+        var errorButtons = gate.querySelectorAll(".jvhd-pin-error-button");
+        for (var j = 0; j < errorButtons.length; j++) {
+            errorButtons[j].addEventListener("click", function (event) {
+                event.preventDefault();
+                if (!jvhdPinOpen || !jvhdPinErrorOpen) return;
+                activateJvhdPinErrorControl(this.getAttribute("data-pin-error-action") || "");
+            });
+        }
         return gate;
     }
 
@@ -8148,12 +8210,88 @@
         var input = document.getElementById("bintv-jvhd-pin-input");
         if (input) input.value = jvhdPinValue;
         var status = document.getElementById("bintv-jvhd-pin-status");
-        if (status) status.textContent = jvhdPinAuthorized ? "Đang mở JVHD…" : "Dùng phím điều hướng và OK để nhập mã PIN";
+        // [JVHD-VIP2 2026-09] Khi panel lỗi đang mở: ẩn bàn phím số và không ghi
+        // đè dòng thông báo lỗi.
+        var keypad = gate.querySelector(".jvhd-pin-keypad");
+        var errorPanel = document.getElementById("bintv-jvhd-pin-error");
+        if (errorPanel) {
+            if (jvhdPinErrorOpen) errorPanel.removeAttribute("hidden");
+            else errorPanel.setAttribute("hidden", "");
+        }
+        if (keypad) keypad.style.display = jvhdPinErrorOpen ? "none" : "";
+        if (status && !jvhdPinErrorOpen) {
+            status.textContent = jvhdPinAuthorized ? "Đang mở JVHD…" : "Dùng phím điều hướng và OK để nhập mã PIN";
+        }
         var buttons = gate.querySelectorAll(".jvhd-pin-key");
         if (jvhdPinFocusIndex < 0) jvhdPinFocusIndex = 0;
         if (jvhdPinFocusIndex >= buttons.length) jvhdPinFocusIndex = buttons.length - 1;
-        for (var i = 0; i < buttons.length; i++) buttons[i].classList.toggle("focus", jvhdPinOpen && !jvhdPinAuthorized && i === jvhdPinFocusIndex);
-        if (jvhdPinOpen && !jvhdPinAuthorized && buttons[jvhdPinFocusIndex]) try { buttons[jvhdPinFocusIndex].focus(); } catch (focusError) {}
+        var keypadFocusable = jvhdPinOpen && !jvhdPinAuthorized && !jvhdPinErrorOpen;
+        for (var i = 0; i < buttons.length; i++) buttons[i].classList.toggle("focus", keypadFocusable && i === jvhdPinFocusIndex);
+        if (keypadFocusable && buttons[jvhdPinFocusIndex]) try { buttons[jvhdPinFocusIndex].focus(); } catch (focusError) {}
+        if (jvhdPinOpen && jvhdPinErrorOpen) updateJvhdPinErrorFocus();
+    }
+
+    // [JVHD-VIP2 2026-09] Panel lỗi /config. Ứng dụng KHÔNG tự đóng: nó giữ cổng
+    // PIN trên màn hình, báo lỗi và chờ người dùng bấm "Thử lại".
+    function jvhdPinErrorButtons() {
+        var gate = document.getElementById("bintv-jvhd-pin-gate");
+        if (!gate) return [];
+        var list = gate.querySelectorAll(".jvhd-pin-error-button");
+        var out = [];
+        for (var i = 0; i < list.length; i++) out.push(list[i]);
+        return out;
+    }
+
+    function updateJvhdPinErrorFocus() {
+        var buttons = jvhdPinErrorButtons();
+        if (!buttons.length) return;
+        if (jvhdPinErrorFocus < 0) jvhdPinErrorFocus = 0;
+        if (jvhdPinErrorFocus >= buttons.length) jvhdPinErrorFocus = buttons.length - 1;
+        for (var i = 0; i < buttons.length; i++) {
+            buttons[i].style.outline = (i === jvhdPinErrorFocus) ? "3px solid #ffffff" : "none";
+            if (i === jvhdPinErrorFocus) try { buttons[i].focus(); } catch (focusError) {}
+        }
+    }
+
+    function showJvhdPinConfigError(error) {
+        jvhdPinErrorOpen = true;
+        jvhdPinErrorFocus = 0;
+        var box = document.getElementById("bintv-jvhd-pin-error-message");
+        if (box) {
+            var detail = String((error && error.message) || "");
+            var headline = (detail === "Không có nguồn JVHD")
+                ? "Máy chủ không trả về nguồn JVHD nào."
+                : getMovieRequestErrorMessage("Không tải được cấu hình JVHD", error);
+            box.textContent = headline + "\nMáy chủ có thể đang khởi động. Bấm \"Thử lại\" để thử tiếp.";
+        }
+        updateJvhdPinGate();
+    }
+
+    function hideJvhdPinConfigError() {
+        jvhdPinErrorOpen = false;
+        jvhdPinErrorFocus = 0;
+        // Cập nhật luôn thuộc tính `hidden` ở đây (không chờ updateJvhdPinGate):
+        // cancelJvhdPinGate() đóng cổng PIN mà không gọi updateJvhdPinGate(),
+        // nếu không panel sẽ còn nằm lại trạng thái chưa ẩn trong DOM.
+        var panel = document.getElementById("bintv-jvhd-pin-error");
+        if (panel) panel.setAttribute("hidden", "");
+    }
+
+    function activateJvhdPinErrorControl(action) {
+        if (!jvhdPinErrorOpen) return;
+        if (action === "cancel") { cancelJvhdPinGate(false); return; }
+        if (action === "retry") retryJvhdConfigLoad();
+    }
+
+    function retryJvhdConfigLoad() {
+        // Gọi lại /config mà KHÔNG bắt người dùng nhập lại mã PIN.
+        hideJvhdPinConfigError();
+        jvhdPinConfigError = null;
+        jvhdPinConfigPending = false;
+        jvhdPinSources = [];
+        jvhdPinAuthorized = true;
+        updateJvhdPinGate();
+        finishJvhdPinAuthorization();
     }
 
     function closeJvhdPinGateView() {
@@ -8170,6 +8308,7 @@
         jvhdPinConfigPending = false;
         jvhdPinSources = [];
         jvhdPinConfigError = null;
+        hideJvhdPinConfigError(); // [JVHD-VIP2 2026-09] đóng luôn panel lỗi /config
         jvhdPinValue = "";
         jvhdLaunchInProgress = false;
         closeJvhdPinGateView();
@@ -8195,14 +8334,17 @@
                 jvhdPinConfigPending = false;
                 jvhdPinConfigError = error || new Error("Không thể tải cấu hình JVHD");
                 finishJvhdPinAuthorization();
-            });
+            }, JVHD_CONFIG_RETRY_COUNT);
             return;
         }
         if (jvhdPinConfigPending) return;
         if (jvhdPinConfigError || !jvhdPinSources.length) {
-            var error = jvhdPinConfigError;
-            cancelJvhdPinGate(false);
-            showToast(getMovieRequestErrorMessage("Không thể tải JVHD", error));
+            // [JVHD-VIP2 2026-09] Không đóng cổng PIN, không thoát ứng dụng:
+            // giữ giao diện lỗi trên màn hình và chờ người dùng bấm "Thử lại".
+            // (Trước đây nhánh này gọi cancelJvhdPinGate + showToast, khiến màn
+            // hình trống trơn và người dùng tưởng ứng dụng tự thoát.)
+            jvhdPinAuthorized = false;
+            showJvhdPinConfigError(jvhdPinConfigError);
             return;
         }
         var sources = jvhdPinSources.slice(0);
@@ -8267,6 +8409,25 @@
 
     function handleJvhdPinKey(left, right, up, down, ok, event) {
         if (!jvhdPinOpen) return false;
+        // [JVHD-VIP2 2026-09] Khi panel lỗi đang mở, điều hướng chỉ gồm 2 nút
+        // "Thử lại" / "Hủy"; phím số bị bỏ qua để không đổi trạng thái PIN.
+        if (jvhdPinErrorOpen) {
+            var errorButtons = jvhdPinErrorButtons();
+            var count = errorButtons.length || 1;
+            if (left || right) {
+                jvhdPinErrorFocus = (jvhdPinErrorFocus + (left ? -1 : 1) + count) % count;
+                updateJvhdPinErrorFocus();
+                return true;
+            }
+            if (ok && !okKeyDown) {
+                okKeyDown = true;
+                suppressNextOkUp = true;
+                var control = errorButtons[jvhdPinErrorFocus];
+                if (control) activateJvhdPinErrorControl(control.getAttribute("data-pin-error-action") || "");
+                return true;
+            }
+            return true;
+        }
         var digit = getJvhdPinDigitFromEvent(event);
         if (digit) { appendJvhdPinDigit(digit); return true; }
         if (isKey(event || {}, 46, "Delete")) { deleteJvhdPinDigit(); return true; }
@@ -8298,6 +8459,7 @@
         jvhdPinConfigPending = false;
         jvhdPinSources = [];
         jvhdPinConfigError = null;
+        hideJvhdPinConfigError(); // [JVHD-VIP2 2026-09] mở cổng PIN luôn ở trạng thái sạch
         var gate = ensureJvhdPinGate();
         gate.classList.add("show");
         updateJvhdPinGate();

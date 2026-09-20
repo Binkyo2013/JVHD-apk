@@ -30,7 +30,9 @@ BUILD_OPTIMISED_PREFIXES = ("res/",)
 # assets/app.js is the file that was migrated to the JVHD server backend; the
 # checked-in version is authoritative and is verified byte-for-byte by
 # verify_apk.py instead.
-EXPECTED_CHANGED = {"assets/app.js"}
+# assets/index.html carries the app display name in <title>, which was renamed
+# to "JVHD Vip2" together with res/values/strings.xml.
+EXPECTED_CHANGED = {"assets/app.js", "assets/index.html"}
 
 
 def parse_manifest(path: str) -> dict[str, str]:

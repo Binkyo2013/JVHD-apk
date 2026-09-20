@@ -8,7 +8,8 @@
     value = {
         Lcom/bintv/launcher/MainActivity$BinChromeClient;,
         Lcom/bintv/launcher/MainActivity$BinWebViewClient;,
-        Lcom/bintv/launcher/MainActivity$Companion;
+        Lcom/bintv/launcher/MainActivity$Companion;,
+        Lcom/bintv/launcher/MainActivity$StartupRetryListener;
     }
 .end annotation
 
@@ -68,6 +69,10 @@
 
 # instance fields
 .field private webView:Landroid/webkit/WebView;
+
+# [JVHD-VIP2 2026-09] true khi khoi tao WebView that bai va man hinh loi dang
+# duoc hien thi. Dung de onKeyDown/onCreate khong cham vao webView con null.
+.field private startupError:Z
 
 
 # direct methods
@@ -286,6 +291,14 @@
 
     .line 44
     invoke-super {p0, p1}, Landroid/app/Activity;->onCreate(Landroid/os/Bundle;)V
+
+    # [JVHD-VIP2 2026-09] Toan bo phan khoi tao WebView nam trong khoi try nay.
+    # Tren Android TV / TV Box, `new WebView(context)` nem AndroidRuntimeException
+    # ("Error loading WebView provider") khi WebView provider bi thieu hoac hu.
+    # Truoc day exception thoat ra ngoai onCreate -> ung dung chet ngay luc nguoi
+    # dung vua mo, chua kip thao tac. Gio no duoc bat va hien man hinh loi co nut
+    # "Thu lai" thay vi tu dong thoat.
+    :try_start_startup
 
     .line 47
     invoke-virtual {p0}, Lcom/bintv/launcher/MainActivity;->getWindow()Landroid/view/Window;
@@ -507,6 +520,148 @@
     invoke-virtual {v3, p1}, Landroid/webkit/WebView;->restoreState(Landroid/os/Bundle;)Landroid/webkit/WebBackForwardList;
 
     :goto_2
+    :try_end_startup
+    .catchall {:try_start_startup .. :try_end_startup} :catch_startup
+    return-void
+
+    :catch_startup
+    move-exception p1
+
+    invoke-direct {p0, p1}, Lcom/bintv/launcher/MainActivity;->showStartupError(Ljava/lang/Throwable;)V
+
+    return-void
+.end method
+
+# [JVHD-VIP2 2026-09] Man hinh loi dung khi WebView khong khoi tao duoc.
+# Duoc viet bang View thuan (khong can WebView, khong can resource moi) de
+# chac chan hien thi duoc tren thiet bi dang loi WebView provider.
+.method private final showStartupError(Ljava/lang/Throwable;)V
+    .locals 5
+
+    const/4 v0, 0x1
+
+    iput-boolean v0, p0, Lcom/bintv/launcher/MainActivity;->startupError:Z
+
+    # Log lai de `adb logcat -s BinTV` cho biet chinh xac vi sao khoi dong loi.
+    const-string v0, "BinTV"
+
+    const-string v1, "WebView startup failed"
+
+    invoke-static {v0, v1, p1}, Landroid/util/Log;->e(Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;)I
+
+    const-string v2, "không rõ nguyên nhân"
+
+    if-eqz p1, :cond_no_detail
+
+    invoke-virtual {p1}, Ljava/lang/Throwable;->toString()Ljava/lang/String;
+
+    move-result-object v2
+
+    :cond_no_detail
+    new-instance v3, Ljava/lang/StringBuilder;
+
+    invoke-direct {v3}, Ljava/lang/StringBuilder;-><init>()V
+
+    const-string v4, "JVHD Vip2 không khởi động được thành phần hiển thị (WebView).\n\n"
+
+    invoke-virtual {v3, v4}, Ljava/lang/StringBuilder;->append(Ljava/lang/String;)Ljava/lang/StringBuilder;
+
+    invoke-virtual {v3, v2}, Ljava/lang/StringBuilder;->append(Ljava/lang/String;)Ljava/lang/StringBuilder;
+
+    const-string v4, "\n\nThiết bị cần có Android System WebView. Bấm \"Thử lại\" để mở lại ứng dụng."
+
+    invoke-virtual {v3, v4}, Ljava/lang/StringBuilder;->append(Ljava/lang/String;)Ljava/lang/StringBuilder;
+
+    invoke-virtual {v3}, Ljava/lang/StringBuilder;->toString()Ljava/lang/String;
+
+    move-result-object v3
+
+    # Root: LinearLayout doc, nen den, can giua giua man hinh.
+    new-instance v0, Landroid/widget/LinearLayout;
+
+    move-object v1, p0
+
+    check-cast v1, Landroid/content/Context;
+
+    invoke-direct {v0, v1}, Landroid/widget/LinearLayout;-><init>(Landroid/content/Context;)V
+
+    const/4 v1, 0x1
+
+    invoke-virtual {v0, v1}, Landroid/widget/LinearLayout;->setOrientation(I)V
+
+    const/high16 v1, -0x1000000
+
+    invoke-virtual {v0, v1}, Landroid/widget/LinearLayout;->setBackgroundColor(I)V
+
+    const/16 v1, 0x11
+
+    invoke-virtual {v0, v1}, Landroid/widget/LinearLayout;->setGravity(I)V
+
+    const/16 v1, 0x60
+
+    invoke-virtual {v0, v1, v1, v1, v1}, Landroid/widget/LinearLayout;->setPadding(IIII)V
+
+    # TextView thong bao loi.
+    new-instance v1, Landroid/widget/TextView;
+
+    move-object v2, p0
+
+    check-cast v2, Landroid/content/Context;
+
+    invoke-direct {v1, v2}, Landroid/widget/TextView;-><init>(Landroid/content/Context;)V
+
+    invoke-virtual {v1, v3}, Landroid/widget/TextView;->setText(Ljava/lang/CharSequence;)V
+
+    # mau trang (0xFFFFFFFF) - const/high16 khong bieu dien duoc gia tri nay
+    const/16 v2, -0x1
+
+    invoke-virtual {v1, v2}, Landroid/widget/TextView;->setTextColor(I)V
+
+    # 20.0f sp
+    const/high16 v2, 0x41a00000
+
+    invoke-virtual {v1, v2}, Landroid/widget/TextView;->setTextSize(F)V
+
+    const/16 v2, 0x11
+
+    invoke-virtual {v1, v2}, Landroid/widget/TextView;->setGravity(I)V
+
+    invoke-virtual {v0, v1}, Landroid/widget/LinearLayout;->addView(Landroid/view/View;)V
+
+    # Nut "Thu lai" -> recreate() Activity de thu khoi dong lai WebView.
+    new-instance v1, Landroid/widget/Button;
+
+    move-object v2, p0
+
+    check-cast v2, Landroid/content/Context;
+
+    invoke-direct {v1, v2}, Landroid/widget/Button;-><init>(Landroid/content/Context;)V
+
+    const-string v2, "Thử lại"
+
+    invoke-virtual {v1, v2}, Landroid/widget/Button;->setText(Ljava/lang/CharSequence;)V
+
+    const/4 v2, 0x1
+
+    invoke-virtual {v1, v2}, Landroid/view/View;->setFocusable(Z)V
+
+    new-instance v2, Lcom/bintv/launcher/MainActivity$StartupRetryListener;
+
+    invoke-direct {v2, p0}, Lcom/bintv/launcher/MainActivity$StartupRetryListener;-><init>(Lcom/bintv/launcher/MainActivity;)V
+
+    check-cast v2, Landroid/view/View$OnClickListener;
+
+    invoke-virtual {v1, v2}, Landroid/view/View;->setOnClickListener(Landroid/view/View$OnClickListener;)V
+
+    invoke-virtual {v0, v1}, Landroid/widget/LinearLayout;->addView(Landroid/view/View;)V
+
+    # Giu focus o nut de remote TV bam OK la chay duoc ngay.
+    invoke-virtual {v1}, Landroid/view/View;->requestFocus()Z
+
+    check-cast v0, Landroid/view/View;
+
+    invoke-virtual {p0, v0}, Lcom/bintv/launcher/MainActivity;->setContentView(Landroid/view/View;)V
+
     return-void
 .end method
 
@@ -630,6 +785,25 @@
 .method public onKeyDown(ILandroid/view/KeyEvent;)Z
     .locals 5
 
+    # [JVHD-VIP2 2026-09] Khi khoi tao WebView that bai, `webView` van null nen
+    # khong duoc cham vao no (Kotlin lateinit se nem exception). Tren man hinh
+    # loi chi con nut "Thu lai"; BACK van cho nguoi dung chu dong thoat.
+    iget-boolean v0, p0, Lcom/bintv/launcher/MainActivity;->startupError:Z
+
+    if-eqz v0, :cond_startup_ok
+
+    const/4 v0, 0x1
+
+    const/4 v1, 0x4
+
+    if-ne p1, v1, :cond_startup_done
+
+    invoke-virtual {p0}, Landroid/app/Activity;->finish()V
+
+    :cond_startup_done
+    return v0
+
+    :cond_startup_ok
     const/4 v0, 0x4
 
     if-ne p1, v0, :cond_6

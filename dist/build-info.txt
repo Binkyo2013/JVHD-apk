@@ -1,45 +1,53 @@
 JVHD.apk build provenance
 repo:     Binkyo2013/JVHD-apk
-commit:   9757d479f0f86b0db1e472530b4f8e455fee7e5b
-built:    2026-09-20T12:44:06Z
+commit:   855548716cf73df3199767599de5131a68aaa2e3
+built:    2026-09-20T13:55:06Z
 
 == toolchain ==
 JDK:       openjdk version "17.0.9" 2023-10-17
-apktool:   2.9.3 (apktool 2.10.0 source inspected: identical lib/kotlin handling)
-zipalign:  Zip alignment utility
+apktool:   2.9.3
+zipalign:  scripts/zipalign.py fallback (no Android SDK build-tools in this sandbox)
 apksigner: 0.9
+aapt2:     prebuilt/linux/aapt2_64 extracted from the apktool jar
 
 == pipeline ==
-bash scripts/build-apk.sh  ->  build/outputs/apk/JVHD.apk
+bash scripts/build-apk.sh  ->  build/outputs/apk/JVHD.apk  ->  dist/JVHD.apk
 
-== reproducibility check ==
-A clean clone of main (30e8dc23556faa117858d00986251787c56c11a9) was built again with the
-same pipeline (bash scripts/build-apk.sh): the resulting APK has the same 899,647 bytes and
-all 32 payload entries (classes.dex, classes2.dex, assets/*, kotlin/*, lib/*, res/*,
-resources.arsc, AndroidManifest.xml) are byte-identical to the file shipped here. Only the
-outer container digest differs between runs (zip entry timestamps and signature material),
-so compare the payload, not the whole-file hash:
-  shipped  sha256 8739ef1743b8bdc517229704d5452c7dd7f2490ebdf1276d9de97e1dcd24f643
-  rebuilt  sha256 259eaf6ac4e40e81cae7382cf6d141b7817d4860ce2fa157fdd61e0f814401c9  (same payload)
+== what changed in this build ==
+  app_name            : JVHD -> JVHD Vip2   (res/values/strings.xml)
+  assets/index.html   : <title>JVHD -> JVHD Vip2
+  assets/app.js       : /config retry (JVHD_CONFIG_RETRY_COUNT=2) + error panel
+                        with a 'Thu lai' button instead of cancel + toast
+  MainActivity.smali  : onCreate WebView bring-up wrapped in a catch-all that
+                        shows a native error screen; onKeyDown guards the
+                        lateinit webView
+  new class           : Lcom/bintv/launcher/MainActivity$StartupRetryListener;
+                        (classes.dex now defines 838 classes, was 837)
+  unchanged           : applicationId com.bintv.launcher, launcher activity,
+                        minSdk 21 / targetSdk 33, landscape, MediaProxyServer,
+                        TizenBridge, BtK, libbtcore.so (arm64-v8a + armeabi-v7a)
 
 == verification of the exact shipped file (dist/JVHD.apk) ==
 APK: dist/JVHD.apk
-size: 899647 bytes
-sha256: 8739ef1743b8bdc517229704d5452c7dd7f2490ebdf1276d9de97e1dcd24f643
+size: 910644 bytes
+sha256: 92cb785134040d97047af492ee033813665cda9cae1d625ca103db45d5baecf3
+APK: dist/JVHD.apk
+size: 910644 bytes
+sha256: 92cb785134040d97047af492ee033813665cda9cae1d625ca103db45d5baecf3
 
 [1] Required APK entries
   [ OK ] AndroidManifest.xml (4216 bytes)
-  [ OK ] resources.arsc (2368 bytes)
-  [ OK ] classes.dex (1861980 bytes)
+  [ OK ] resources.arsc (2376 bytes)
+  [ OK ] classes.dex (1863388 bytes)
   [ OK ] classes2.dex (15260 bytes)
-  [ OK ] assets/app.js (475116 bytes)
+  [ OK ] assets/app.js (484272 bytes)
   [ OK ] lib/arm64-v8a/libbtcore.so (5112 bytes)
   [ OK ] lib/armeabi-v7a/libbtcore.so (3368 bytes)
 
 [2] DEX partitions vs Smali sources
-  [ OK ] classes.dex: dex v035 file_size=1861980 header_size=112 endian=0x12345678
-  [ OK ] classes.dex defines all 837 classes of smali/
-        class definitions in classes.dex: 837
+  [ OK ] classes.dex: dex v035 file_size=1863388 header_size=112 endian=0x12345678
+  [ OK ] classes.dex defines all 838 classes of smali/
+        class definitions in classes.dex: 838
   [ OK ] classes2.dex: dex v035 file_size=15260 header_size=112 endian=0x12345678
   [ OK ] classes2.dex defines all 8 classes of smali_classes2/
         class definitions in classes2.dex: 8
@@ -51,7 +59,7 @@ sha256: 8739ef1743b8bdc517229704d5452c7dd7f2490ebdf1276d9de97e1dcd24f643
   [ OK ] Lcom/bintv/launcher/BtK; -> classes.dex
 
 [4] Byte identity with the checked-in sources
-  [ OK ] assets/app.js sha256=b4c30aabf77b9e19... (identical to assets/app.js)
+  [ OK ] assets/app.js sha256=8c36958c81b75183... (identical to assets/app.js)
   [ OK ] kotlin/kotlin.kotlin_builtins sha256=0633ac9c37e96556... (identical to kotlin/kotlin.kotlin_builtins)
   [ OK ] kotlin-tooling-metadata.json sha256=3dc584210c18f884... (identical to unknown/kotlin-tooling-metadata.json)
   [ OK ] lib/arm64-v8a/libbtcore.so sha256=fe73808fda45c752... (identical to lib/arm64-v8a/libbtcore.so)
@@ -78,7 +86,7 @@ sha256: 8739ef1743b8bdc517229704d5452c7dd7f2490ebdf1276d9de97e1dcd24f643
 
 ================ VERIFICATION SUMMARY ================
 APK            : dist/JVHD.apk
-SHA-256        : 8739ef1743b8bdc517229704d5452c7dd7f2490ebdf1276d9de97e1dcd24f643
+SHA-256        : 92cb785134040d97047af492ee033813665cda9cae1d625ca103db45d5baecf3
 failures       : 0
 RESULT: PASSED
 
@@ -87,7 +95,7 @@ original APK entries recorded in original/META-INF/MANIFEST.MF: 32
   [ OK ] assets/JVHD.png: digest identical to the original APK
   [core] assets/app.js: intentionally migrated to the JVHD backend (checked-in file is authoritative)
   [ OK ] assets/hls.min.js: digest identical to the original APK
-  [ OK ] assets/index.html: digest identical to the original APK
+  [core] assets/index.html: intentionally migrated to the JVHD backend (checked-in file is authoritative)
   [ OK ] assets/style.css: digest identical to the original APK
   [ OK ] assets/tizen_shim.js: digest identical to the original APK
   [core] classes.dex: recompiled by the build (digest changes by design)
@@ -116,5 +124,25 @@ original APK entries recorded in original/META-INF/MANIFEST.MF: 32
   [core] res/mipmap-xxxhdpi/ic_launcher_round.png: source kept, re-optimised by aapt2 at build time
   [core] resources.arsc: recompiled by the build (digest changes by design)
 
-identical: 15/32   recompiled: 17   missing: 0   new entries: 3
+identical: 14/32   recompiled: 18   missing: 0   new entries: 3
 RESULT: PASSED (original assets, resources images, Kotlin builtins and native libraries preserved)
+
+== compiled manifest identity (aapt2 dump badging) ==
+package: name='com.bintv.launcher' versionCode='1' versionName='1.0.6' platformBuildVersionName='13' platformBuildVersionCode='33' compileSdkVersion='33' compileSdkVersionCodename='13'
+sdkVersion:'21'
+targetSdkVersion:'33'
+application-label:'JVHD Vip2'
+launchable-activity: name='com.bintv.launcher.MainActivity'  label='' icon=''
+
+== headless UI regression test (jsdom driving the real assets/app.js) ==
+  scenario A: /config always fails  -> gate stays, error panel + 'Thu lai', 3 attempts, BACK opens exit dialog
+  scenario B: 'Thu lai' after the server warms up -> JVHD screen opens
+  scenario C: one transient failure -> absorbed by the automatic retry
+  scenario D: 'Huy' on the error panel -> explicit user exit
+  result: 21/21 checks passed
+
+== NOT verified (no physical Android device available) ==
+  - real cold-start behaviour against https://jvhd-server.onrender.com
+  - WebView provider failure path on an actual TV Box (verified only by
+    static analysis of MainActivity.smali + successful Smali assembly)
+  - remote-control focus traversal on the native error screen

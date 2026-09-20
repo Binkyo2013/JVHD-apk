@@ -5,7 +5,7 @@
 
 ```
 apktool project (smali/, smali_classes2/, res/, assets/, lib/)
-   -> apktool 2.10.0 assembly  ->  classes.dex + classes2.dex
+   -> apktool 2.9.3 assembly   ->  classes.dex + classes2.dex
    -> zipalign -f -p 4
    -> apksigner (keystore/jvhd-debug.keystore)
    -> scripts/verify_apk.py + scripts/verify_original_manifest.py
@@ -14,13 +14,14 @@ apktool project (smali/, smali_classes2/, res/, assets/, lib/)
 | | |
 | --- | --- |
 | File | `dist/JVHD.apk` |
-| SHA-256 | `8739ef1743b8bdc517229704d5452c7dd7f2490ebdf1276d9de97e1dcd24f643` |
-| Size | 899,647 bytes |
+| SHA-256 | `92cb785134040d97047af492ee033813665cda9cae1d625ca103db45d5baecf3` |
+| Size | 910,644 bytes |
 | applicationId | `com.bintv.launcher` |
 | Launcher activity | `com.bintv.launcher.MainActivity` |
 | minSdk / targetSdk | 21 / 33 (landscape) |
+| App label | `JVHD Vip2` (`application-label` in the compiled manifest) |
 | Signature | APK Signature Scheme v1 + v2 + v3 (debug key `jvhddebug`) |
-| Source commit | `9757d479f0f86b0db1e472530b4f8e455fee7e5b` (first commit that contains it; content identical to `main` head `ae8ef3f`) |
+| Source commit | `855548716cf73df3199767599de5131a68aaa2e3` |
 
 `build-info.txt` holds the toolchain versions and the full verification output
 of this exact file.

@@ -1,0 +1,67 @@
+name: Build JVHD APK
+
+on:
+  push:
+    branches: [ main, 'arena/**' ]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  ANDROID_API: '33'
+  ANDROID_BUILD_TOOLS: '34.0.0'
+  GRADLE_VERSION: '8.7'
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android platform and build tools
+        run: |
+          sdkmanager --install "platform-tools" "platforms;android-${ANDROID_API}" "build-tools;${ANDROID_BUILD_TOOLS}"
+          yes | sdkmanager --licenses >/dev/null || true
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: ${{ env.GRADLE_VERSION }}
+
+      # The checkout intentionally contains the apktool-style project rather
+      # than a pre-generated wrapper. Generate the official wrapper with the
+      # pinned Gradle distribution, then use it for the actual build.
+      - name: Generate Gradle Wrapper
+        run: gradle --no-daemon wrapper --gradle-version "${GRADLE_VERSION}" --distribution-type bin
+
+      - name: Build and verify APK
+        run: ./gradlew --no-daemon --stacktrace assembleDebug
+
+      - name: Verify APK contents
+        run: |
+          test -f build/outputs/apk/JVHD.apk
+          unzip -l build/outputs/apk/JVHD.apk | tee apk-contents.txt
+          unzip -l build/outputs/apk/JVHD.apk | grep -q 'classes.dex'
+          unzip -l build/outputs/apk/JVHD.apk | grep -q 'classes2.dex'
+          unzip -l build/outputs/apk/JVHD.apk | grep -q 'assets/app.js'
+          unzip -l build/outputs/apk/JVHD.apk | grep -q 'lib/arm64-v8a/libbtcore.so'
+          unzip -l build/outputs/apk/JVHD.apk | grep -q 'lib/armeabi-v7a/libbtcore.so'
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: JVHD-apk-debug
+          path: build/outputs/apk/JVHD.apk
+          if-no-files-found: error

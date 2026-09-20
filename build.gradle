@@ -1,0 +1,116 @@
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
+
+// This is intentionally a packaging project, not a Java/Kotlin rewrite. Apktool
+// assembles the checked-in DEX-oriented project and preserves smali_classes2.
+
+ext {
+    apktoolVersion = '2.10.0'
+    apktoolJar = file("$buildDir/tooling/apktool_${apktoolVersion}.jar")
+    stagingDir = file("$buildDir/apktool-project")
+    unsignedApk = file("$buildDir/outputs/apk/JVHD-unsigned.apk")
+    alignedApk = file("$buildDir/outputs/apk/JVHD.apk")
+}
+
+tasks.register('downloadApktool') {
+    outputs.file(apktoolJar)
+    doLast {
+        apktoolJar.parentFile.mkdirs()
+        if (!apktoolJar.exists()) {
+            def uri = new URI("https://github.com/iBotPeaches/Apktool/releases/download/v${apktoolVersion}/apktool_${apktoolVersion}.jar")
+            uri.toURL().withInputStream { input -> apktoolJar.withOutputStream { output -> output << input } }
+        }
+    }
+}
+
+tasks.register('stageApktoolProject') {
+    dependsOn tasks.named('downloadApktool')
+    outputs.dir(stagingDir)
+    doLast {
+        delete stagingDir
+        stagingDir.mkdirs()
+        // Keep the decompiled project structure and all DEX partitions. Do not
+        // copy the Gradle project into the apktool input tree.
+        ['AndroidManifest.xml', 'apktool.yml', 'assets', 'res', 'smali',
+         'smali_classes2', 'kotlin', 'lib', 'unknown', 'original'].each { name ->
+            def source = file(name)
+            if (!source.exists()) throw new GradleException("Missing apktool input: ${name}")
+            def target = new File(stagingDir, name)
+            if (source.directory) {
+                project.copy { from source; into target }
+            } else {
+                Files.copy(source.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
+            }
+        }
+    }
+}
+
+tasks.register('apktoolAssemble') {
+    dependsOn tasks.named('stageApktoolProject')
+    outputs.file(unsignedApk)
+    doLast {
+        unsignedApk.parentFile.mkdirs()
+        exec {
+            executable = 'java'
+            args '-jar', apktoolJar.absolutePath, 'b', stagingDir.absolutePath,
+                 '-o', unsignedApk.absolutePath, '--use-aapt2'
+        }
+    }
+}
+
+def sdkBuildTools = providers.environmentVariable('ANDROID_HOME').map { home ->
+    def root = file(home).toPath().resolve('build-tools')
+    def dirs = Files.exists(root) ? Files.list(root).collect { it }.sort().reverse() : []
+    dirs ? dirs[0].toFile().absolutePath : ''
+}.orElse('')
+
+tasks.register('packageDebugApk') {
+    dependsOn tasks.named('apktoolAssemble')
+    outputs.file(alignedApk)
+    doLast {
+        def bt = sdkBuildTools.get()
+        if (!bt) throw new GradleException('ANDROID_HOME/build-tools not available')
+        def zipalign = file("$bt/zipalign")
+        def apksigner = file("$bt/apksigner")
+        if (!zipalign.exists() || !apksigner.exists()) throw new GradleException('zipalign/apksigner not available')
+        alignedApk.parentFile.mkdirs()
+        exec { commandLine zipalign.absolutePath, '-f', '4', unsignedApk.absolutePath, alignedApk.absolutePath }
+        def ks = file(System.getProperty('user.home') + '/.android/debug.keystore')
+        if (!ks.exists()) {
+            ks.parentFile.mkdirs()
+            exec {
+                commandLine 'keytool', '-genkeypair', '-v', '-keystore', ks.absolutePath,
+                    '-storepass', 'android', '-alias', 'androiddebugkey', '-keypass', 'android',
+                    '-dname', 'CN=Android Debug,O=Android,C=US', '-keyalg', 'RSA', '-keysize', '2048', '-validity', '10000'
+            }
+        }
+        exec {
+            commandLine apksigner.absolutePath, 'sign', '--ks', ks.absolutePath,
+                '--ks-pass', 'pass:android', '--key-pass', 'pass:android', alignedApk.absolutePath
+        }
+    }
+}
+
+tasks.register('verifyApk') {
+    dependsOn tasks.named('packageDebugApk')
+    doLast {
+        def zip = new java.util.zip.ZipFile(alignedApk)
+        def required = [
+            'classes.dex', 'classes2.dex', 'assets/app.js',
+            'lib/arm64-v8a/libbtcore.so', 'lib/armeabi-v7a/libbtcore.so'
+        ]
+        required.each { entry -> if (!zip.getEntry(entry)) throw new GradleException("APK missing ${entry}") }
+        def dexText = required.findAll { it.endsWith('.dex') }.collect { entry ->
+            def bytes = zip.getInputStream(zip.getEntry(entry)).bytes
+            new String(bytes, 'ISO-8859-1')
+        }.join('\n')
+        ['com/bintv/launcher/MainActivity', 'com/bintv/launcher/TizenBridge',
+         'com/bintv/launcher/MediaProxyServer', 'com/bintv/launcher/BtK'].each { name ->
+            if (!dexText.contains(name)) throw new GradleException("APK missing class ${name}")
+        }
+        zip.close()
+        println "BUILD SUCCESS: ${alignedApk}"
+    }
+}
+
+tasks.register('assembleDebug') { dependsOn tasks.named('verifyApk') }

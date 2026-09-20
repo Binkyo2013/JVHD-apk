@@ -34,7 +34,10 @@
 
     // [BinTV] JVHD - ứng dụng nguồn web thứ hai (cạnh Phim), có màn hình riêng.
     var BUILTIN_JVHD_APP_ID = "bintv.jvhd";
-    var JVHD_CONFIG_URL = "https://api.jsonbin.io/v3/b/6a8ae66cf5f4af5e29385160";
+    var JVHD_SERVER_BASE = "https://jvhd-server.onrender.com";
+    // JVHD sources/TargetUrl are served by JVHD Server. APK never reads the
+    // private Member/Hash4/TargetUrl stores directly.
+    var JVHD_CONFIG_URL = JVHD_SERVER_BASE + "/config";
     var JVHD_REQUEST_TIMEOUT = 12000;
     var JVHD_RESOLVE_TIMEOUT = 32000;
     var JVHD_MAX_RESOLVE_PAGES = 8;
@@ -50,16 +53,16 @@
     var jvhdPinConfigError = null;
     // [BinTV USER-AUTH 2026-08] Xac thuc Username sau PIN dung (bao mat lai):
     // hash SHA-256(username + SALT) chi duoc tinh trong native lib qua
-    // AndroidBridge; danh sach hash tai tu JSONBin; 3 lan sai lien tiep ->
+    // AndroidBridge; danh sach hash tai tu JVHD Server; 3 lan sai lien tiep ->
     // khoa 3 phut theo thoi gian thuc (localStorage, reload khong reset).
     var jvhdUserGateOpen = false;
     var jvhdUserChecking = false;
     var jvhdUserCountdownTimer = null;
     // [BinTV USER-AUTH DEV-BIND 2026-08] May chu xac thuc phia server: giu anh xa
     // Username-Hash <-> Device-Public-Key, sinh challenge, verify chu ky ECDSA.
-    // 1 Username = 1 Device; server tu choi device thu hai. JSONBin van la noi
-    // luu danh sach hash duoc phep (admin quan tri), server doc tu do.
-    var JVHD_AUTH_API = "https://jvhd-auth.onrender.com";
+    // 1 Username = 1 Device; server tu choi device thu hai. Hash allowlist va
+    // binding chi duoc doc/ghi boi JVHD Server.
+    var JVHD_AUTH_API = JVHD_SERVER_BASE;
     var JVHD_USER_FAIL_LIMIT = 3;
     var JVHD_USER_LOCK_MS = 180000;
     var jvhdScreenOpen = false;
@@ -8298,7 +8301,7 @@
     // ===== [BinTV USER-AUTH 2026-08] Man Xac thuc Username (hien sau khi PIN dung) =====
     // Chi THEM man chan moi; khong doi UI/logic/duong dan nao khac cua JVHD.
     // Bao mat: khong console.log username/hash; SALT chi nam trong native lib;
-    // JS chi nhan chuoi hash 64 ky tu hex va so voi JSONBin.
+    // JS chi nhan chuoi hash 64 ky tu hex; allowlist do JVHD Server kiem tra.
     function jvhdUserLs() {
         try { return window.localStorage || null; } catch (lsError) { return null; }
     }
@@ -8503,15 +8506,20 @@
         }
     }
     // [BinTV USER-AUTH DEV-BIND 2026-08] Helper giao thuc xac thuc voi server.
-    function jvhdUserAuthRequest(path, payload, success, failure) {
+    // Single network entry point for the JVHD protocol. Render may cold-start;
+    // retry only transient transport/5xx failures (never authentication errors).
+    function jvhdUserAuthRequest(path, payload, success, failure, attempt) {
+        attempt = attempt || 0;
         var xhr = new XMLHttpRequest();
         var finished = false;
+        var timeoutMs = 15000;
         var timer = setTimeout(function () {
             if (finished) return;
             finished = true;
             try { xhr.abort(); } catch (abortError) {}
-            failure(new Error("timeout"));
-        }, 15000);
+            if (attempt < 2) { setTimeout(function () { jvhdUserAuthRequest(path, payload, success, failure, attempt + 1); }, 350 * (attempt + 1)); }
+            else failure({ kind: "network", message: "timeout" });
+        }, timeoutMs + 500);
         function done(fn, arg) {
             if (finished) return;
             finished = true;
@@ -8520,19 +8528,28 @@
         }
         xhr.onreadystatechange = function () {
             if (xhr.readyState !== 4) return;
-            if (xhr.status < 200 || xhr.status >= 300) { done(failure, new Error("HTTP " + xhr.status)); return; }
+            var status = xhr.status;
+            if (status < 200 || status >= 300) {
+                var transient = status === 408 || status === 429 || status >= 500;
+                if (transient && attempt < 2) {
+                    done(function () { setTimeout(function () { jvhdUserAuthRequest(path, payload, success, failure, attempt + 1); }, 350 * (attempt + 1)); }, null);
+                } else done(failure, { kind: transient ? "network" : "server", status: status, message: "HTTP " + status });
+                return;
+            }
             var data = null;
-            try { data = JSON.parse(xhr.responseText); } catch (parseError) { done(failure, parseError); return; }
+            try { data = JSON.parse(xhr.responseText); } catch (parseError) { done(failure, { kind: "server", message: "invalid response" }); return; }
             done(success, data);
         };
-        xhr.onerror = function () { done(failure, new Error("network")); };
+        xhr.onerror = function () {
+            if (attempt < 2) done(function () { setTimeout(function () { jvhdUserAuthRequest(path, payload, success, failure, attempt + 1); }, 350 * (attempt + 1)); }, null);
+            else done(failure, { kind: "network", message: "network error" });
+        };
         try {
             xhr.open("POST", JVHD_AUTH_API + path, true);
             xhr.setRequestHeader("Content-Type", "application/json");
+            xhr.timeout = timeoutMs;
             xhr.send(JSON.stringify(payload));
-        } catch (sendError) {
-            done(failure, sendError);
-        }
+        } catch (sendError) { done(failure, { kind: "network", message: String(sendError) }); }
     }
     function jvhdUserAuthFinishChecking() {
         jvhdUserChecking = false;

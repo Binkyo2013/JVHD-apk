@@ -1,0 +1,23 @@
+version: 2.10.0
+apkFileName: JVHD_V.i.p.apk
+isFrameworkApk: false
+usesFramework:
+  ids:
+  - 1
+  tag: null
+sdkInfo:
+  minSdkVersion: 21
+  targetSdkVersion: 33
+packageInfo:
+  forcedPackageId: 127
+  renameManifestPackage: com.bintv.jvhd
+versionInfo:
+  versionCode: 1
+  versionName: 1.0.6
+resourcesAreCompressed: false
+sharedLibrary: false
+sparseResources: false
+unknownFiles:
+  kotlin-tooling-metadata.json: 8
+doNotCompress:
+- resources.arsc

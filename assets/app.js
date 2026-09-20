@@ -5755,15 +5755,15 @@
             var key = keys[i];
             if (!/^source/i.test(key)) continue;
             var entry = payload[key];
-            if (entry && typeof entry === "object" && typeof entry.url === "string" && isValidMovieTargetUrl(entry.url)) {
-                // [BinTV] Giữ lại parse_mode/extractor: LIVE và NEW LIVE là nguồn
-                // livestream (extract_stream), cần luồng xử lý riêng thay vì scrape card.
-                var jvhdSourceEntry = { name: String(entry.name || ("Nguồn " + (sources.length + 1))), url: entry.url };
+            if (/^source\d+$/i.test(key) && entry && typeof entry === "object" &&
+                typeof entry.name === "string" && entry.name.trim() &&
+                typeof entry.url === "string" && isValidMovieTargetUrl(entry.url)) {
+                // [BinTV] Giữ lại parse_mode/extractor từ TargetUrl. Tên và URL
+                // đều thuộc về object source này; không dùng danh sách cố định.
+                var jvhdSourceEntry = { name: entry.name.trim(), url: entry.url };
                 if (typeof entry.parse_mode === "string" && entry.parse_mode) jvhdSourceEntry.parseMode = entry.parse_mode.toLowerCase();
                 if (typeof entry.extractor === "string" && entry.extractor) jvhdSourceEntry.extractor = entry.extractor.toLowerCase();
                 sources.push(jvhdSourceEntry);
-            } else if (typeof entry === "string" && isValidMovieTargetUrl(entry)) {
-                sources.push({ name: key, url: entry });
             }
         }
         return sources;
@@ -6164,13 +6164,10 @@
        ===================================================== */
 
     function jvhdIsLiveSource(src) {
-        if (!src) return false;
-        if (String(src.parseMode || "").toLowerCase() === "extract_stream") return true;
-        var liveInfo = jvhdUrlInfo(src.url, src.url);
-        var liveHost = liveInfo ? jvhdNormalizeHostname(liveInfo.hostname) : "";
-        return liveHost === "stripchat.com" || liveHost.indexOf(".stripchat.com") !== -1 ||
-            liveHost === "stripchats.io" || liveHost.indexOf(".stripchats.io") !== -1 ||
-            liveHost === "chaturbate.com" || liveHost.indexOf(".chaturbate.com") !== -1;
+        // The server-controlled parse_mode is authoritative. A normal source
+        // must never be promoted to extract_stream merely because its hostname
+        // happens to look like a live provider.
+        return !!src && String(src.parseMode || "").toLowerCase() === "extract_stream";
     }
 
     /* [BinTV] JVHD LIVE - phát qua hls.js (assets/hls.min.js) khi có thể:
@@ -8182,7 +8179,26 @@
 
     function finishJvhdPinAuthorization() {
         if (jvhdUserGateOpen) return; // [BinTV USER-AUTH] dang trong man username -> mo JVHD sau khi qua xac thuc
-        if (!jvhdPinOpen || !jvhdPinAuthorized || jvhdPinConfigPending) return;
+        if (!jvhdPinOpen || !jvhdPinAuthorized) return;
+        if (!jvhdPinConfigPending && !jvhdPinSources.length && !jvhdPinConfigError) {
+            // Authentication has passed: fetch TargetUrl through the server only.
+            jvhdPinConfigPending = true;
+            var configToken = ++jvhdPinAttemptToken;
+            requestJson(JVHD_CONFIG_URL, JVHD_REQUEST_TIMEOUT, function (data) {
+                if (configToken !== jvhdPinAttemptToken || !jvhdPinOpen) return;
+                jvhdPinSources = extractJvhdSources(data);
+                jvhdPinConfigPending = false;
+                if (!jvhdPinSources.length) jvhdPinConfigError = new Error("Không có nguồn JVHD");
+                finishJvhdPinAuthorization();
+            }, function (error) {
+                if (configToken !== jvhdPinAttemptToken || !jvhdPinOpen) return;
+                jvhdPinConfigPending = false;
+                jvhdPinConfigError = error || new Error("Không thể tải cấu hình JVHD");
+                finishJvhdPinAuthorization();
+            });
+            return;
+        }
+        if (jvhdPinConfigPending) return;
         if (jvhdPinConfigError || !jvhdPinSources.length) {
             var error = jvhdPinConfigError;
             cancelJvhdPinGate(false);
@@ -8277,25 +8293,14 @@
         jvhdPinValue = "";
         jvhdPinFocusIndex = 0;
         jvhdPinAuthorized = false;
-        jvhdPinConfigPending = true;
+        // Config must be loaded only after the server authentication succeeds.
+        // There is intentionally no local/default source list or legacy fallback.
+        jvhdPinConfigPending = false;
         jvhdPinSources = [];
         jvhdPinConfigError = null;
-        var token = ++jvhdPinAttemptToken;
         var gate = ensureJvhdPinGate();
         gate.classList.add("show");
         updateJvhdPinGate();
-        requestJson(JVHD_CONFIG_URL, JVHD_REQUEST_TIMEOUT, function (data) {
-            if (token !== jvhdPinAttemptToken || !jvhdPinOpen) return;
-            jvhdPinConfigPending = false;
-            jvhdPinSources = extractJvhdSources(data);
-            if (!jvhdPinSources.length) jvhdPinConfigError = new Error("Không có nguồn JVHD");
-            if (jvhdPinAuthorized) finishJvhdPinAuthorization();
-        }, function (error) {
-            if (token !== jvhdPinAttemptToken || !jvhdPinOpen) return;
-            jvhdPinConfigPending = false;
-            jvhdPinConfigError = error || new Error("Không thể tải cấu hình JVHD");
-            if (jvhdPinAuthorized) finishJvhdPinAuthorization();
-        });
     }
 
     // ===== [BinTV USER-AUTH 2026-08] Man Xac thuc Username (hien sau khi PIN dung) =====

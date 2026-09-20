@@ -46,8 +46,26 @@ jobs:
       - name: Generate Gradle Wrapper
         run: gradle --no-daemon wrapper --gradle-version "${GRADLE_VERSION}" --distribution-type bin
 
-      - name: Build and verify APK
-        run: ./gradlew --no-daemon --stacktrace assembleDebug
+      - name: Prepare and verify apktool 2.10.0
+        run: |
+          ./gradlew --no-daemon --stacktrace downloadApktool
+          test -s build/tooling/apktool_2.10.0.jar
+          java -jar build/tooling/apktool_2.10.0.jar --version | grep -F '2.10.0'
+
+      - name: Stage original Smali packaging inputs
+        run: |
+          ./gradlew --no-daemon --stacktrace stageApktoolProject
+          test -d build/apktool-project/smali
+          test -d build/apktool-project/smali_classes2
+          test -f build/apktool-project/AndroidManifest.xml
+          test -f build/apktool-project/apktool.yml
+          test -f build/apktool-project/assets/app.js
+          test -f build/apktool-project/res/values/strings.xml
+          test -f build/apktool-project/lib/arm64-v8a/libbtcore.so
+          test -f build/apktool-project/lib/armeabi-v7a/libbtcore.so
+
+      - name: Assemble Smali-backed APK
+        run: ./gradlew --no-daemon --console=plain --stacktrace assembleDebug
 
       - name: Verify APK contents
         run: |
@@ -55,6 +73,7 @@ jobs:
           "$ANDROID_HOME/build-tools/${ANDROID_BUILD_TOOLS}/aapt2" dump badging build/outputs/apk/JVHD.apk | grep -q "package: name='com.bintv.launcher'"
           "$ANDROID_HOME/build-tools/${ANDROID_BUILD_TOOLS}/aapt2" dump badging build/outputs/apk/JVHD.apk | grep -q "launchable-activity: name='com.bintv.launcher.MainActivity'"
           unzip -l build/outputs/apk/JVHD.apk | tee apk-contents.txt
+          unzip -l build/outputs/apk/JVHD.apk | grep -q 'AndroidManifest.xml'
           unzip -l build/outputs/apk/JVHD.apk | grep -q 'classes.dex'
           unzip -l build/outputs/apk/JVHD.apk | grep -q 'classes2.dex'
           unzip -l build/outputs/apk/JVHD.apk | grep -q 'assets/app.js'

@@ -45,6 +45,18 @@ Environment overrides: `JAVA_HOME`, `ANDROID_HOME`, `APKTOOL_JAR`,
 Output: **`build/outputs/apk/JVHD.apk`** (signed, zipaligned) plus
 `build/outputs/apk/JVHD.apk.sha256` and `build/badging.txt`.
 
+### Prebuilt APK
+
+A verified APK built by this pipeline is kept in [`dist/`](dist/README.md) so it
+can be downloaded without GitHub Actions:
+
+```
+https://github.com/Binkyo2013/JVHD-apk/raw/main/dist/JVHD.apk
+```
+
+`dist/build-info.txt` contains the toolchain versions and the verification
+output of that exact file.
+
 ### GitHub Actions
 
 Workflow `.github/workflows/build-apk.yml` (`Build JVHD APK`) runs on

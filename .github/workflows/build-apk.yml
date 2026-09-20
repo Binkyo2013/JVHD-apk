@@ -52,7 +52,7 @@ jobs:
       # (https://github.com/iBotPeaches/Apktool/releases/download/v2.10.0/apktool_2.10.0.jar)
       # and its version is checked before it is used.
       - name: Build, zipalign, sign and verify JVHD.apk
-        run: bash scripts/build-apk.sh
+        run: bash scripts/build-apk.sh 2>&1 | tee build/build.log
 
       - name: Independent verification with Android SDK tools
         run: |
@@ -138,4 +138,13 @@ jobs:
             build/outputs/apk/JVHD.apk.sha256
             build/badging.txt
           if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: JVHD-build-log
+          path: build/build.log
+          if-no-files-found: warn
           retention-days: 30

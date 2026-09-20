@@ -1,0 +1,10 @@
+# Build outputs (the APK itself is published as a GitHub Actions artifact /
+# release asset, never committed)
+build/
+.gradle/
+local.properties
+*.iml
+.idea/
+apk-contents.txt
+__pycache__/
+*.pyc

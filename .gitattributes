@@ -1,0 +1,5 @@
+# The decompiled apktool project keeps the CRLF line endings produced by
+# apktool on Windows. Tell git that the CR at the end of those lines is part of
+# the line terminator, so `git diff --check` does not report trailing whitespace.
+apktool.yml whitespace=cr-at-eol
+AndroidManifest.xml whitespace=cr-at-eol

@@ -1,0 +1,98 @@
+Manifest-Version: 1.0
+
+Name: AndroidManifest.xml
+SHA-256-Digest: 7sgzlvSPxhou/8o9gEbYQk98IwfjMWc76HyVheIdm3s=
+
+Name: assets/JVHD.png
+SHA-256-Digest: fmZmRtfD9II3nmfgmH/uHKtWf64P1ZxU3ndRXQLBmIg=
+
+Name: assets/app.js
+SHA-256-Digest: ncMrKXl9BSL8kH/KOUEbNU2UCLvg3gCjPSCozt0KBDU=
+
+Name: assets/hls.min.js
+SHA-256-Digest: 0BbBIwSW7lnz9bAcFszkzAG1odPTV63sIAyQixMevkk=
+
+Name: assets/index.html
+SHA-256-Digest: NasTz/0fQyxNb6EIJ11ThsDYyo1kw8yC5j2KTZCIiCo=
+
+Name: assets/style.css
+SHA-256-Digest: ofc1p05K6fFAdhJcKgeegRTW+2MDwdIYTtWcEpQ9gcE=
+
+Name: assets/tizen_shim.js
+SHA-256-Digest: SLCRtXbtS9Qp9kNd9zw5Y6kzWq6huVNAbXfUUadQJb8=
+
+Name: classes.dex
+SHA-256-Digest: g9M5eTC4a3GZvqWZa3ChwWpqAuYRTOmCTvgcFMh2d24=
+
+Name: classes2.dex
+SHA-256-Digest: diccruyBx6HVThO30xoNGpr9wnfG4I2rO9DzFBv8gUM=
+
+Name: kotlin-tooling-metadata.json
+SHA-256-Digest: PcWEIQwY+ISu+2sML6THkXLCGGjb2ivWxRfI+heJivE=
+
+Name: kotlin/annotation/annotation.kotlin_builtins
+SHA-256-Digest: 98k+cGfKErqbPZTG5UDkwjy2/djJr/cEtVPKumUPw1c=
+
+Name: kotlin/collections/collections.kotlin_builtins
+SHA-256-Digest: U5uFwkA/bvBjgWGtmd97ESVkEulBEzXtLqOTGj79fHY=
+
+Name: kotlin/coroutines/coroutines.kotlin_builtins
+SHA-256-Digest: WabWMrip9duibyponDhl4ZU1HffDwIqhZp/g35+euIM=
+
+Name: kotlin/internal/internal.kotlin_builtins
+SHA-256-Digest: x2two9sezL5C6pGlNmfXZh7fxhVAnT1uV0tYQ7HioF4=
+
+Name: kotlin/kotlin.kotlin_builtins
+SHA-256-Digest: BjOsnDfpZVaSe9ciSl0xwJjhOxQW5IKQ1QvVAq7WLTs=
+
+Name: kotlin/ranges/ranges.kotlin_builtins
+SHA-256-Digest: tZwbWppJHfeZ7uICrZGTdgCb1Pgi1+n895wgs1BQOFI=
+
+Name: kotlin/reflect/reflect.kotlin_builtins
+SHA-256-Digest: 8AIcphQmJQ1rF+dt1fcyxZCM9n3K8zsEKaPq17GJQ4Y=
+
+Name: lib/arm64-v8a/libbtcore.so
+SHA-256-Digest: /nOAj9pFx1KM/fCJmi+cepxnTaNi7pu4saq+6PXnHpo=
+
+Name: lib/armeabi-v7a/libbtcore.so
+SHA-256-Digest: dQHyJntNAM0z9WYjhaFNJ5rNh4MuTNMN2CKj9fCWkzk=
+
+Name: res/drawable/ic_launcher_foreground.png
+SHA-256-Digest: /TmH6dCskKlUs/JOBuWEYEVNB0sCBusO+JRQfEh2v5M=
+
+Name: res/drawable/tv_banner.png
+SHA-256-Digest: 4QrWjmV9LKQiudzosnzBebOPlB5ytuF3FUtMh5NHgEk=
+
+Name: res/mipmap-hdpi/ic_launcher.png
+SHA-256-Digest: o4wDe9UU0BDAWhKjLAQHKU7IKNV4zCuSzij6T9mijwA=
+
+Name: res/mipmap-hdpi/ic_launcher_round.png
+SHA-256-Digest: gpXll6aE6t33zqweTvWqlWVMSUtZjfhzSBbVaG8Upi8=
+
+Name: res/mipmap-mdpi/ic_launcher.png
+SHA-256-Digest: jWExFHx45PrBIKLL4QrGzmAWagcfiDXcFOtquY9KywY=
+
+Name: res/mipmap-mdpi/ic_launcher_round.png
+SHA-256-Digest: bZdlHwKoQamWY8M3BCJ5Nx3vm2Ab6wW6kvLj2wmr4ns=
+
+Name: res/mipmap-xhdpi/ic_launcher.png
+SHA-256-Digest: +8BZbyNTVrz1NM2pYoUug706alPFRyKHR7Evd1Pn3gE=
+
+Name: res/mipmap-xhdpi/ic_launcher_round.png
+SHA-256-Digest: J1e+oMCRXC/3wZybSwshL5EDr+qBQpPA943APpl5Iqw=
+
+Name: res/mipmap-xxhdpi/ic_launcher.png
+SHA-256-Digest: HZFcYaS4FXu42HV+6MWUOnyxxUupfvQu1kswBYkts/E=
+
+Name: res/mipmap-xxhdpi/ic_launcher_round.png
+SHA-256-Digest: 5A3rvRGP4UKGHMITeTtEY7arSs18jQHWsLnp0Onezts=
+
+Name: res/mipmap-xxxhdpi/ic_launcher.png
+SHA-256-Digest: degfaIohYeHs6WYJw6XzbjcpjmdI3rhVBjYyCzJADaQ=
+
+Name: res/mipmap-xxxhdpi/ic_launcher_round.png
+SHA-256-Digest: 6yPyTTWXEo4/44EO3RLbv9wpjRUkUZaLiuYlyzA0l4E=
+
+Name: resources.arsc
+SHA-256-Digest: gdS27A+H5UINnfx5R8QVssyDbrhUL0GXSPy7swXtxSg=
+

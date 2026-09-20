@@ -30,7 +30,7 @@
         },
         getCurrentApplication: function () {
             return {
-                appInfo: { id: hasBridge() ? callString("getMyAppId", "com.bintv.launcher") : "com.bintv.launcher" },
+                appInfo: { id: hasBridge() ? callString("getMyAppId", "com.JVHD.vip") : "com.JVHD.vip" },
                 exit: function () { if (hasBridge()) { try { bridge().exitApp(); } catch (e) {} } }
             };
         },

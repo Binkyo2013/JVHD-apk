@@ -36,10 +36,10 @@ import zipfile
 
 DEX_MAGIC = b"dex\n"
 REQUIRED_CLASSES = [
-    "Lcom/bintv/launcher/MainActivity;",
-    "Lcom/bintv/launcher/TizenBridge;",
-    "Lcom/bintv/launcher/MediaProxyServer;",
-    "Lcom/bintv/launcher/BtK;",
+    "Lcom/JVHD/vip/MainActivity;",
+    "Lcom/JVHD/vip/TizenBridge;",
+    "Lcom/JVHD/vip/MediaProxyServer;",
+    "Lcom/JVHD/vip/BtK;",
 ]
 REQUIRED_ENTRIES = [
     "AndroidManifest.xml",
@@ -352,8 +352,8 @@ def main() -> int:
     parser.add_argument("--project", required=True)
     parser.add_argument("--badging")
     parser.add_argument("--signature-report")
-    parser.add_argument("--expect-package", default="com.bintv.launcher")
-    parser.add_argument("--expect-activity", default="com.bintv.launcher.MainActivity")
+    parser.add_argument("--expect-package", default="com.JVHD.vip")
+    parser.add_argument("--expect-activity", default="com.JVHD.vip.MainActivity")
     parser.add_argument("--expect-min-sdk", default="21")
     parser.add_argument("--expect-target-sdk", default="33")
     args = parser.parse_args()

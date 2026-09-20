@@ -63,8 +63,8 @@ jobs:
 
           # compiled manifest identity
           "$BT/aapt2" dump badging "$APK" | tee build/ci-badging.txt
-          grep -q "package: name='com.bintv.launcher'" build/ci-badging.txt
-          grep -q "launchable-activity: name='com.bintv.launcher.MainActivity'" build/ci-badging.txt
+          grep -q "package: name='com.JVHD.vip'" build/ci-badging.txt
+          grep -q "launchable-activity: name='com.JVHD.vip.MainActivity'" build/ci-badging.txt
           grep -q "sdkVersion:'21'" build/ci-badging.txt
           grep -q "targetSdkVersion:'33'" build/ci-badging.txt
 
@@ -104,7 +104,7 @@ jobs:
               "$BT/dexdump" "$dex" | grep "Class descriptor" >> build/dex-classes.txt
             done
             for cls in MainActivity TizenBridge MediaProxyServer BtK; do
-              grep -q "Lcom/bintv/launcher/${cls};" build/dex-classes.txt
+              grep -q "Lcom/JVHD/vip/${cls};" build/dex-classes.txt
             done
             grep -c "Class descriptor" build/dex-classes.txt
           else

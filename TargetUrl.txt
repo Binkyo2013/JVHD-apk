@@ -1,0 +1,26 @@
+{
+  "source1": {
+    "name": "LIVE",
+    "url": "https://vi.stripchats.io/girls/vietnamese",
+    "parse_mode": "extract_stream",
+    "extractor": "stripchat"
+  },
+  "source2": {
+    "name": "NEW LIVE",
+    "url": "https://chaturbate.com/asian-cams/female",
+    "parse_mode": "extract_stream",
+    "extractor": "chaturbate"
+  },
+  "source3": {
+    "name": "NEW VIDEO",
+    "url": "https://yespornpleasexxx.com/xnxx/youporn-5x"
+  },
+  "source4": {
+    "name": "VIDEO HD",
+    "url": "https://javhdz.ac"
+  },
+  "source5": {
+    "name": "PRN HUB",
+    "url": "https://de.pornhub.com"
+  }
+}

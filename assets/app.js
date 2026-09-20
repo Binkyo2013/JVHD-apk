@@ -9169,5 +9169,17 @@
         loadInstalledApps(function () { createApps(); focusApp(); scheduleMovieBackgroundPrefetch(); });
     }
 
-    window.addEventListener("DOMContentLoaded", init);
+    // [JVHD-VIP2 2026-09] Bọc init() để (a) bật cờ __BINTV_JVHD_READY__ khi khởi
+    // động đã xong - window.onerror trong index.html dựa vào cờ này để không biến
+    // một lỗi vặt sau khởi động thành màn hình báo lỗi - và (b) ném lại lỗi khởi
+    // động cho handler đó hiển thị thay vì để lại một màn hình đen.
+    window.addEventListener("DOMContentLoaded", function () {
+        try {
+            init();
+            window.__BINTV_JVHD_READY__ = true;
+        } catch (startupError) {
+            window.__BINTV_JVHD_STARTUP_ERROR__ = String((startupError && startupError.message) || startupError);
+            throw startupError;
+        }
+    });
 })();

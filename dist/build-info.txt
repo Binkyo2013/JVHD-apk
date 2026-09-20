@@ -12,6 +12,16 @@ apksigner: 0.9
 == pipeline ==
 bash scripts/build-apk.sh  ->  build/outputs/apk/JVHD.apk
 
+== reproducibility check ==
+A clean clone of main (30e8dc23556faa117858d00986251787c56c11a9) was built again with the
+same pipeline (bash scripts/build-apk.sh): the resulting APK has the same 899,647 bytes and
+all 32 payload entries (classes.dex, classes2.dex, assets/*, kotlin/*, lib/*, res/*,
+resources.arsc, AndroidManifest.xml) are byte-identical to the file shipped here. Only the
+outer container digest differs between runs (zip entry timestamps and signature material),
+so compare the payload, not the whole-file hash:
+  shipped  sha256 8739ef1743b8bdc517229704d5452c7dd7f2490ebdf1276d9de97e1dcd24f643
+  rebuilt  sha256 259eaf6ac4e40e81cae7382cf6d141b7817d4860ce2fa157fdd61e0f814401c9  (same payload)
+
 == verification of the exact shipped file (dist/JVHD.apk) ==
 APK: dist/JVHD.apk
 size: 899647 bytes

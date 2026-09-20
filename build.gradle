@@ -38,6 +38,14 @@ tasks.register('stageApktoolProject') {
             def target = new File(stagingDir, name)
             if (source.directory) {
                 project.copy { from source; into target }
+            } else if (name == 'apktool.yml') {
+                // The decoded metadata contains a historical rename target
+                // (com.bintv.jvhd). The checked-in manifest is authoritative and
+                // must remain com.bintv.launcher.
+                def yaml = source.getText('UTF-8')
+                yaml = yaml.replaceFirst('(?m)^renameManifestPackage:.*\\r?\\n', '')
+                target.parentFile.mkdirs()
+                target.setText(yaml, 'UTF-8')
             } else {
                 Files.copy(source.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
             }
@@ -58,11 +66,13 @@ tasks.register('apktoolAssemble') {
     }
 }
 
-def sdkBuildTools = providers.environmentVariable('ANDROID_HOME').map { home ->
-    def root = file(home).toPath().resolve('build-tools')
-    def dirs = Files.exists(root) ? Files.list(root).collect { it }.sort().reverse() : []
-    dirs ? dirs[0].toFile().absolutePath : ''
-}.orElse('')
+def sdkBuildTools = providers.provider {
+    def home = System.getenv('ANDROID_HOME') ?: System.getenv('ANDROID_SDK_ROOT')
+    if (!home) return ''
+    def root = new File(home, 'build-tools')
+    def dirs = root.listFiles()?.findAll { it.isDirectory() }?.sort { a, b -> b.name <=> a.name } ?: []
+    dirs ? dirs[0].absolutePath : ''
+}
 
 tasks.register('packageDebugApk') {
     dependsOn tasks.named('apktoolAssemble')

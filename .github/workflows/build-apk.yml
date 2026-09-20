@@ -1,10 +1,10 @@
 name: Build JVHD APK
 
 on:
+  workflow_dispatch: {}
   push:
     branches: [ main, 'arena/**' ]
   pull_request:
-  workflow_dispatch: {}
 
 permissions:
   contents: read
@@ -12,13 +12,16 @@ permissions:
 env:
   ANDROID_API: '33'
   ANDROID_BUILD_TOOLS: '34.0.0'
-  GRADLE_VERSION: '8.7'
+  APKTOOL_VERSION: '2.10.0'
 
 jobs:
   build:
+    name: Build JVHD.apk
     runs-on: ubuntu-22.04
+    env:
+      ANDROID_HOME: ${{ env.ANDROID_HOME }}
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Set up JDK 17
@@ -30,59 +33,110 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install Android platform and build tools
+      - name: Install Android platform 33 and build-tools 34.0.0
         run: |
+          set -euo pipefail
           sdkmanager --install "platform-tools" "platforms;android-${ANDROID_API}" "build-tools;${ANDROID_BUILD_TOOLS}"
           yes | sdkmanager --licenses >/dev/null || true
+          test -x "${ANDROID_HOME}/build-tools/${ANDROID_BUILD_TOOLS}/zipalign"
+          test -x "${ANDROID_HOME}/build-tools/${ANDROID_BUILD_TOOLS}/apksigner"
+          test -x "${ANDROID_HOME}/build-tools/${ANDROID_BUILD_TOOLS}/aapt2"
+          "${ANDROID_HOME}/build-tools/${ANDROID_BUILD_TOOLS}/aapt2" version
 
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: ${{ env.GRADLE_VERSION }}
-
-      # The checkout intentionally contains the apktool-style project rather
-      # than a pre-generated wrapper. Generate the official wrapper with the
-      # pinned Gradle distribution, then use it for the actual build.
-      - name: Generate Gradle Wrapper
-        run: gradle --no-daemon wrapper --gradle-version "${GRADLE_VERSION}" --distribution-type bin
-
-      - name: Prepare and verify apktool 2.10.0
+      - name: Show toolchain versions
         run: |
-          ./gradlew --no-daemon --stacktrace downloadApktool
-          test -s build/tooling/apktool_2.10.0.jar
-          java -jar build/tooling/apktool_2.10.0.jar --version | grep -F '2.10.0'
+          java -version
+          python3 --version
+          echo "ANDROID_HOME=${ANDROID_HOME}"
 
-      - name: Stage original Smali packaging inputs
+      # apktool 2.10.0 is downloaded by the build script itself
+      # (https://github.com/iBotPeaches/Apktool/releases/download/v2.10.0/apktool_2.10.0.jar)
+      # and its version is checked before it is used.
+      - name: Build, zipalign, sign and verify JVHD.apk
+        run: bash scripts/build-apk.sh
+
+      - name: Independent verification with Android SDK tools
         run: |
-          ./gradlew --no-daemon --stacktrace stageApktoolProject
-          test -d build/apktool-project/smali
-          test -d build/apktool-project/smali_classes2
-          test -f build/apktool-project/AndroidManifest.xml
-          test -f build/apktool-project/apktool.yml
-          test -f build/apktool-project/assets/app.js
-          test -f build/apktool-project/res/values/strings.xml
-          test -f build/apktool-project/lib/arm64-v8a/libbtcore.so
-          test -f build/apktool-project/lib/armeabi-v7a/libbtcore.so
+          set -euo pipefail
+          APK=build/outputs/apk/JVHD.apk
+          BT="${ANDROID_HOME}/build-tools/${ANDROID_BUILD_TOOLS}"
+          test -f "$APK"
 
-      - name: Assemble Smali-backed APK
-        run: ./gradlew --no-daemon --console=plain --stacktrace assembleDebug
+          # compiled manifest identity
+          "$BT/aapt2" dump badging "$APK" | tee build/ci-badging.txt
+          grep -q "package: name='com.bintv.launcher'" build/ci-badging.txt
+          grep -q "launchable-activity: name='com.bintv.launcher.MainActivity'" build/ci-badging.txt
+          grep -q "sdkVersion:'21'" build/ci-badging.txt
+          grep -q "targetSdkVersion:'33'" build/ci-badging.txt
 
-      - name: Verify APK contents
+          # zip alignment and signature
+          "$BT/zipalign" -c -v -p 4 "$APK" | tail -5
+          "$BT/apksigner" verify --verbose --print-certs "$APK" | tee build/ci-apksigner-verify.txt
+          grep -q "^Verifies" build/ci-apksigner-verify.txt
+
+          # required entries
+          unzip -l "$APK" | tee build/ci-apk-contents.txt
+          for entry in classes.dex classes2.dex assets/app.js AndroidManifest.xml \
+                       lib/arm64-v8a/libbtcore.so lib/armeabi-v7a/libbtcore.so; do
+            grep -q "$entry" build/ci-apk-contents.txt
+          done
+
+          # native libraries inside the APK must be byte-identical to the sources
+          rm -rf build/apk-extract && mkdir -p build/apk-extract
+          unzip -o -q "$APK" 'lib/*' 'assets/app.js' -d build/apk-extract
+          sha256sum lib/arm64-v8a/libbtcore.so lib/armeabi-v7a/libbtcore.so assets/app.js
+          sha256sum build/apk-extract/lib/arm64-v8a/libbtcore.so \
+                    build/apk-extract/lib/armeabi-v7a/libbtcore.so \
+                    build/apk-extract/assets/app.js
+          diff <(sha256sum < lib/arm64-v8a/libbtcore.so | cut -d' ' -f1) \
+               <(sha256sum < build/apk-extract/lib/arm64-v8a/libbtcore.so | cut -d' ' -f1)
+          diff <(sha256sum < lib/armeabi-v7a/libbtcore.so | cut -d' ' -f1) \
+               <(sha256sum < build/apk-extract/lib/armeabi-v7a/libbtcore.so | cut -d' ' -f1)
+          diff <(sha256sum < assets/app.js | cut -d' ' -f1) \
+               <(sha256sum < build/apk-extract/assets/app.js | cut -d' ' -f1)
+
+          # class level verification straight out of the DEX files
+          rm -rf build/apk-dex && mkdir -p build/apk-dex
+          unzip -o -q "$APK" 'classes*.dex' -d build/apk-dex
+          if [ -x "$BT/dexdump" ]; then
+            : > build/dex-classes.txt
+            for dex in build/apk-dex/classes*.dex; do
+              echo "--- $dex" >> build/dex-classes.txt
+              "$BT/dexdump" "$dex" | grep "Class descriptor" >> build/dex-classes.txt
+            done
+            for cls in MainActivity TizenBridge MediaProxyServer BtK; do
+              grep -q "Lcom/bintv/launcher/${cls};" build/dex-classes.txt
+            done
+            grep -c "Class descriptor" build/dex-classes.txt
+          else
+            echo "dexdump not available in build-tools, relying on scripts/verify_apk.py"
+          fi
+          python3 scripts/verify_apk.py --apk "$APK" --project . \
+            --badging build/ci-badging.txt --signature-report build/ci-apksigner-verify.txt
+
+      - name: Publish build summary
+        if: always()
         run: |
-          test -f build/outputs/apk/JVHD.apk
-          "$ANDROID_HOME/build-tools/${ANDROID_BUILD_TOOLS}/aapt2" dump badging build/outputs/apk/JVHD.apk | grep -q "package: name='com.bintv.launcher'"
-          "$ANDROID_HOME/build-tools/${ANDROID_BUILD_TOOLS}/aapt2" dump badging build/outputs/apk/JVHD.apk | grep -q "launchable-activity: name='com.bintv.launcher.MainActivity'"
-          unzip -l build/outputs/apk/JVHD.apk | tee apk-contents.txt
-          unzip -l build/outputs/apk/JVHD.apk | grep -q 'AndroidManifest.xml'
-          unzip -l build/outputs/apk/JVHD.apk | grep -q 'classes.dex'
-          unzip -l build/outputs/apk/JVHD.apk | grep -q 'classes2.dex'
-          unzip -l build/outputs/apk/JVHD.apk | grep -q 'assets/app.js'
-          unzip -l build/outputs/apk/JVHD.apk | grep -q 'lib/arm64-v8a/libbtcore.so'
-          unzip -l build/outputs/apk/JVHD.apk | grep -q 'lib/armeabi-v7a/libbtcore.so'
+          {
+            echo "### JVHD.apk"
+            echo
+            if [ -f build/outputs/apk/JVHD.apk ]; then
+              echo '```'
+              ls -l build/outputs/apk/JVHD.apk
+              sha256sum build/outputs/apk/JVHD.apk
+              echo '```'
+            else
+              echo "APK was not produced."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload APK artifact
+      - name: Upload JVHD.apk artifact
         uses: actions/upload-artifact@v4
         with:
           name: JVHD-apk-debug
-          path: build/outputs/apk/JVHD.apk
+          path: |
+            build/outputs/apk/JVHD.apk
+            build/outputs/apk/JVHD.apk.sha256
+            build/badging.txt
           if-no-files-found: error
+          retention-days: 30

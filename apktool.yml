@@ -10,7 +10,6 @@ sdkInfo:
   targetSdkVersion: 33
 packageInfo:
   forcedPackageId: 127
-  renameManifestPackage: com.bintv.jvhd
 versionInfo:
   versionCode: 1
   versionName: 1.0.6
@@ -21,3 +20,5 @@ unknownFiles:
   kotlin-tooling-metadata.json: 8
 doNotCompress:
 - resources.arsc
+- lib/arm64-v8a/libbtcore.so
+- lib/armeabi-v7a/libbtcore.so

@@ -48,11 +48,19 @@ jobs:
           python3 --version
           echo "ANDROID_HOME=${ANDROID_HOME}"
 
-      # apktool 2.10.0 is downloaded by the build script itself
-      # (https://github.com/iBotPeaches/Apktool/releases/download/v2.10.0/apktool_2.10.0.jar)
-      # and its version is checked before it is used.
+      # The build script is the single source of truth for the pipeline.
+      # - mkdir -p build: tee must be able to create build/build.log even when
+      #   the script dies before creating any output directory (fresh checkout
+      #   has no build/ because it is gitignored).
+      # - pipefail: the step must fail when the build script fails, otherwise
+      #   the exit status of tee would mask the real build error.
+      # The log is uploaded by the "Upload build log" step below, which runs
+      # even when this step fails.
       - name: Build, zipalign, sign and verify JVHD.apk
-        run: bash scripts/build-apk.sh 2>&1 | tee build/build.log
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          bash scripts/build-apk.sh 2>&1 | tee build/build.log
 
       - name: Independent verification with Android SDK tools
         run: |
@@ -145,6 +153,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: JVHD-build-log
-          path: build/build.log
+          path: |
+            build/build.log
+            build/*.txt
           if-no-files-found: warn
           retention-days: 30

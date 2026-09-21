@@ -8,10 +8,11 @@ the APK.
 
 Checks performed
 ----------------
-1. Required entries exist: classes.dex, classes2.dex, assets/app.js,
+1. Required entries exist: classes.dex, classes2.dex, classes3.dex, assets/app.js,
    AndroidManifest.xml, resources.arsc and both native libraries.
 2. Every `*.smali` file of `smali/` is present as a class definition inside
-   classes.dex, and every file of `smali_classes2/` inside classes2.dex.
+   classes.dex, every file of `smali_classes2/` inside classes2.dex and every
+   file of `smali_classes3/` (the restored Kotlin runtime) inside classes3.dex.
 3. The four mandated launcher classes are really defined in the DEX code.
 4. Byte identity (SHA-256) between the APK entries and the checked-in sources
    for assets/, kotlin/ (Kotlin builtins passthrough), the native libraries and
@@ -46,6 +47,7 @@ REQUIRED_ENTRIES = [
     "resources.arsc",
     "classes.dex",
     "classes2.dex",
+    "classes3.dex",
     "assets/app.js",
     "lib/arm64-v8a/libbtcore.so",
     "lib/armeabi-v7a/libbtcore.so",
@@ -197,7 +199,8 @@ def check_entries(apk_path: str) -> zipfile.ZipFile:
 
 def check_dex(archive: zipfile.ZipFile, project: str) -> None:
     print("\n[2] DEX partitions vs Smali sources")
-    partitions = [("classes.dex", "smali"), ("classes2.dex", "smali_classes2")]
+    partitions = [("classes.dex", "smali"), ("classes2.dex", "smali_classes2"),
+                  ("classes3.dex", "smali_classes3")]
     all_defined: dict[str, str] = {}
     for dex_name, smali_name in partitions:
         smali_dir = os.path.join(project, smali_name)

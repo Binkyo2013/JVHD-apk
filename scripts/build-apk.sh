@@ -2,7 +2,8 @@
 #
 # JVHD.apk build pipeline.
 #
-#   decompiled apktool project (smali/ + smali_classes2/ + res/ + assets/ + lib/)
+#   decompiled apktool project (smali/ + smali_classes2/ + smali_classes3/
+#   + res/ + assets/ + lib/)
 #        -> apktool "b" (Smali assembly, aapt2 resource link)
 #        -> build/outputs/apk/JVHD-unsigned.apk
 #        -> zipalign -p 4
@@ -136,7 +137,7 @@ fi
 log "Staging apktool project"
 rm -rf "$STAGING_DIR" "$OUT_DIR"
 mkdir -p "$STAGING_DIR" "$OUT_DIR" "$TOOLING_DIR"
-for item in AndroidManifest.xml apktool.yml assets res smali smali_classes2 kotlin lib unknown original; do
+for item in AndroidManifest.xml apktool.yml assets res smali smali_classes2 smali_classes3 kotlin lib unknown original; do
     [ -e "$ROOT_DIR/$item" ] || die "required project item missing: $item"
     cp -r "$ROOT_DIR/$item" "$STAGING_DIR/"
     echo "  staged $item"
@@ -161,7 +162,7 @@ else:
 PY
 
 # --------------------------------------------------------------------------- #
-# 3. assemble (Smali -> classes.dex / classes2.dex + resources + manifest)
+# 3. assemble (Smali -> classes.dex / classes2.dex / classes3.dex + resources + manifest)
 # --------------------------------------------------------------------------- #
 log "Assembling Smali and resources with apktool"
 "$JAVA_BIN" -jar "$APKTOOL_JAR" b "$STAGING_DIR" -o "$UNSIGNED_APK" "${APKTOOL_BUILD_FLAGS[@]}"
@@ -233,6 +234,9 @@ fi
 # --------------------------------------------------------------------------- #
 # 6. verify
 # --------------------------------------------------------------------------- #
+log "Verifying that the DEX files link (no dangling class/member references)"
+python3 "$ROOT_DIR/scripts/verify_dex_links.py" --apk "$FINAL_APK"
+
 log "Reading compiled manifest with aapt2/aapt"
 AAPT2_BIN="${AAPT2:-}"
 if [ -z "$AAPT2_BIN" ] && [ -n "$BUILD_TOOLS" ] && [ -x "$BUILD_TOOLS/aapt2" ]; then

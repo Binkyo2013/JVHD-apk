@@ -303,6 +303,16 @@
     # "Thu lai" thay vi tu dong thoat.
     :try_start_startup
 
+    # [JVHD-VIP2 2026-09] Bat logger ngoai le khong duoc bat (xem CrashLogger.smali).
+    # Dat ngay dau onCreate de moi loi tu day tro di (ke ca loi tu cau noi
+    # JavaScript AndroidBridge.*) deu duoc ghi lai thanh stack trace day du
+    # trong jvhd-crash.txt truoc khi tien trinh thoat. Khong doi hanh vi thoat.
+    move-object v0, p0
+
+    check-cast v0, Landroid/content/Context;
+
+    invoke-static {v0}, Lcom/JVHD/vip/CrashLogger;->install(Landroid/content/Context;)V
+
     .line 47
     invoke-virtual {p0}, Lcom/JVHD/vip/MainActivity;->getWindow()Landroid/view/Window;
 

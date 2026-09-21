@@ -1,33 +1,68 @@
 JVHD.apk build provenance
 repo:     Binkyo2013/JVHD-apk
-commit:   c6f8caf6f8982a9656373a3a9dbff55d3d07745c (main, WebView software-rendering fix)
-built:    2026-09-20T23:36:47Z (sandbox rebuild)
+commit:   a654f33 (fix: restore the missing Kotlin runtime and RawResponse$1;
+          this file was updated in the commit right after it)
+built:    2026-09-21T05:32:00Z (sandbox rebuild)
 apk:      dist/JVHD.apk
-sha256:   037a167f0564149e98ecae37539c62f819add4d52de85ef81ccbdd7c8f0715a5
-size:     914394 bytes
+sha256:   432566fb5caf5013832c2eda53670e64a263fc2d0d435bb8ff0ff8e62ed92ee6
+size:     975782 bytes
 
-This build SUPERSEDES the previous dist copy (built 2026-09-20T15:14:28Z from
-commit 2289919, sha256 46660c19...) - that copy predates the WebView
-LAYER_TYPE_SOFTWARE fix and its classes.dex does not contain setLayerType.
-The current file contains it (setLayerType present in classes.dex).
+This build SUPERSEDES the previous dist copy (sha256 037a167f..., built from
+c6f8caf) - that copy crashed on launch because it contained no Kotlin
+runtime at all. Verified: scripts/verify_dex_links.py run against the old
+file reports 352 dangling references, including
+  Lkotlin/jvm/internal/Intrinsics; and its member references,
+  Lkotlin/jvm/internal/Ref$IntRef;, Lkotlin/Unit;, Lkotlin/UShort;,
+  Lkotlin/io/path/PathsKt; -> readText/appendText/...,
+  Lcom/JVHD/vip/RawResponse$1;
+Run against this file it reports RESULT: PASSED (the DEX files link
+completely).
+
+== what was fixed ==
+[1] Kotlin runtime missing from the APK (root cause of the instant exit)
+    The app's own classes are compiled from Kotlin 1.8.22 and call the Kotlin
+    standard library on every startup path (Intrinsics.checkNotNullParameter
+    first of all), but classes.dex + classes2.dex shipped no kotlin/** classes
+    besides a partial copy left in the decompiled smali/ tree. Android
+    therefore threw NoClassDefFoundError inside MainActivity.onCreate before
+    the first frame was drawn, which the system reports as "app closed".
+    105 classes were restored from an authentic kotlin-stdlib-1.8.22 tree
+    (universe: three repositories whose whole kotlin/** smali tree matches
+    1.8.22; the class closure was computed with scripts/restore_kotlin_runtime.py
+    until it reached a fixed point) and now live in smali_classes3/:
+    kotlin/jvm/internal/Intrinsics, Ref, Ref$IntRef/ObjectRef/..., Unit,
+    Lambda, Function0/1/2/3, DefaultConstructorMarker, TypeIntrinsics, UShort,
+    UShortArray, KMappedMarker, TextStreamsKt, ArrayDeque, UnsignedKt, ...
+    Provenance of every one of the 105 files: smali_classes3/RESTORED-CLASSES.txt.
+[2] com.JVHD.vip.RawResponse$1 was undefined (second, latent defect)
+    smali_classes2/com/JVHD/vip/RawResponse.smali instantiates it and callers
+    in the DoH layer (Doh, DohHelper, FakeHttpURLConnection) would have died
+    with NoClassDefFoundError on the first DoH lookup. No public source
+    contains the class (checked upstream camiboj/PDoH and every Binkyo2013
+    repository), so it was re-created by hand as a plain subclass of
+    RawResponse with the exact constructor the call site uses:
+      <init>(ILjava/lang/String;Ljavax/net/ssl/SSLSocket;Ljava/io/InputStream;)V
+    It captures no additional state and overrides nothing.
+[3] Startup failures are no longer silent
+    smali_classes2/com/JVHD/vip/CrashLogger.smali (a Thread.UncaughtException
+    Handler installed first thing in MainActivity.onCreate) now writes the
+    full stack trace of any uncaught exception - including exceptions raised
+    on the WebView JavaScript bridge thread - to logcat (tag JVHD-CRASH) and
+    to jvhd-crash.txt in the app's external files directory, then delegates to
+    the previous handler. It never exits or finishes the activity itself.
 
 == toolchain ==
 JDK:       openjdk version "25.0.2" 2026-01-20 LTS (jdk4py 25.0.2.1 runtime)
 apktool:   2.9.3 - sha256 7956eb04194300ce0d0a84ad18771eebc94b89fb8d1ddcce8ea4c056818646f4
-           (byte-identical to the jar the previous 2289919 build used; obtained
-           from the npm packages @postar/apktool-node and apk-revise, which ship
-           it verbatim, after GitHub release assets and the LFS CDN proved
-           unreachable from this sandbox)
+           (npm packages @postar/apktool-node and apk-revise ship it verbatim;
+           GitHub release assets and the LFS CDN are unreachable here)
 aapt2:     2.19-eng.20269 (prebuilt/linux/aapt2_64 extracted from the apktool
-           jar by scripts/build-apk.sh itself; executes fine in this sandbox,
-           so no manual resource phase was needed this time)
-framework: the framework reference shipped inside the apktool jar (used
-           internally by apktool b --use-aapt2 for the resource link)
+           jar by scripts/build-apk.sh itself)
+framework: the framework reference shipped inside the apktool jar
 zipalign:  scripts/zipalign.py -f -p 4 (no Android SDK build-tools in sandbox)
-apksigner: 0.9 (standalone jar, npm @postar/apktool-node package/lib/apksigner.jar;
-           same 0.9 build the previous 2289919 build signed with)
-disassembler for cross-checks: none needed - scripts/verify_apk.py parses the
-           DEX structures directly
+apksigner: 0.9 (standalone jar from the same npm package)
+disassembler for cross-checks: none needed - scripts/verify_apk.py and
+           scripts/verify_dex_links.py parse the DEX structures directly
 
 == pipeline (exactly what ran - the repo's own script, unmodified) ==
   bash scripts/build-apk.sh            (JAVA_HOME=jdk4py, APKTOOL_JAR=<2.9.3>,
@@ -35,8 +70,8 @@ disassembler for cross-checks: none needed - scripts/verify_apk.py parses the
 
   inside the script:
   java -jar apktool.jar b <staged project> -o JVHD-unsigned.apk --use-aapt2
-      -> classes.dex (838 classes) + classes2.dex (8 classes) + aapt2
-         resource link with the bundled framework
+      -> classes.dex (838 classes) + classes2.dex (10 classes)
+         + classes3.dex (116 classes) + aapt2 resource link
   scripts/zipalign.py -f -p 4 JVHD-unsigned.apk JVHD.apk
       -> resources.arsc + lib/*.so STORED (apktool.yml doNotCompress),
          stored entries 4-aligned, *.so page (4096) aligned
@@ -45,10 +80,11 @@ disassembler for cross-checks: none needed - scripts/verify_apk.py parses the
   java -jar apksigner.jar verify --verbose --print-certs
 
 == verification (scripts/verify_apk.py - RESULT: PASSED, 0 failures) ==
-  [1] required entries            : all present (manifest, arsc, 2x dex,
+  [1] required entries            : all present (manifest, arsc, 3x dex,
                                     assets/app.js, both libbtcore.so)
   [2] dex vs smali sources        : 838/838 classes of smali/ in classes.dex,
-                                    8/8 classes of smali_classes2/ in classes2.dex
+                                    10/10 classes of smali_classes2/ in classes2.dex,
+                                    116/116 classes of smali_classes3/ in classes3.dex
   [3] launcher classes            : MainActivity, TizenBridge, MediaProxyServer,
                                     BtK all defined
   [4] byte identity with sources  : assets/, kotlin/ builtins, unknown/ metadata,
@@ -60,19 +96,56 @@ disassembler for cross-checks: none needed - scripts/verify_apk.py parses the
                                     CN=JVHD Debug,O=JVHD,C=VN
                                     cert sha256 29c7c79c2e6ee788882fbf8f5dfcc095f00f569907223d9b9d0fc3b7efdab020
 
-  scripts/verify_original_manifest.py : PASSED (11/32 original entries
-  byte-identical, 21 intentionally recompiled/renamed, 0 missing, 3 new)
+== verification (scripts/verify_dex_links.py - RESULT: PASSED) ==
+  classes.dex : dex v035, 838 classes, 1210 types, 10917 method ids
+  classes2.dex: dex v035, 10 classes, 71 types, 165 method ids
+  classes3.dex: dex v035, 116 classes, 344 types, 1152 method ids
+  [1] dangling type references (964 classes defined, 1625 type ids)
+      [ OK ] every non-platform type id is defined by the APK
+  [2] dangling superclass/interface references
+      [ OK ] every superclass/interface of every defined class is defined
+             or is a platform class (java/javax/android/androidx/dalvik/...)
+  [3] dangling member references (field/method ids owned by APK classes)
+      [ OK ] 12235 field/method ids owned by APK classes all resolve
+             (signature-level, walking the superclass/interface chain)
+  This is the check that catches exactly the class of defect that made the
+  previous dist copy crash: an APK that installs fine, starts, and dies with
+  NoClassDefFoundError because a referenced class was never packaged.
 
-== WebView software-rendering fix (the change vs the previous dist copy) ==
-  MainActivity.smali onCreate: mWebView.setLayerType(View.LAYER_TYPE_SOFTWARE=1, null)
-  -> WebView rendering goes through Skia software path; prevents the GPU
-     driver crash (black screen) on MuMu Player and some Android TV boxes.
-  Verified present in the shipped classes.dex (string pool contains
-  setLayerType; Lcom/JVHD/vip/MainActivity; built from the checked-in smali).
+== verification (scripts/verify_original_manifest.py - RESULT: PASSED) ==
+  11/32 entries of the original APK byte-identical, 21 intentionally
+  recompiled/renamed, 0 missing, 4 new (classes3.dex + 3 alignment/padding
+  entries). All original assets, resource images, Kotlin builtins and both
+  native libraries are preserved.
+
+== additional audits run for this fix ==
+  - reflective lookups: no "com/JVHD/..." or DoH class name appears as a
+    string constant in any dex, so no class is loaded by name through
+    Class.forName/loadClass reflection (would have been invisible to the
+    linker check).
+  - JavaScript bridge: all four bridge methods called from assets/*.js
+    (proxyMedia, c0, d0, e0) exist in com.JVHD.vip.TizenBridge and are
+    annotated @JavascriptInterface.
+  - JNI: scripts/patch_btcore_jni.py --check - the renamed export
+    Java_com_JVHD_vip_TizenBridge_n0 resolves in the .hash/.gnu.hash of both
+    libbtcore.so ABIs.
+  - startup path: MainActivity.onCreate (Kotlin) wraps its whole setup in
+    try/catch -> showStartupError (logcat JVHD-CRASH + jvhd-crash.txt); there
+    is no self-exit/close call path in the app (closeBinTVApplication() has
+    exactly two call sites, both behind user dialogs).
+
+== reproducibility ==
+dist/JVHD.apk is byte-identical to a build of the commit above; rebuilding
+that tree with the toolchain listed here reproduces
+sha256 432566fb5caf5013832c2eda53670e64a263fc2d0d435bb8ff0ff8e62ed92ee6.
 
 == NOT verified (no physical Android device available) ==
-  - real cold-start behaviour against https://jvhd-server.onrender.com
-  - software-rendered WebView UI smoothness (software layer is slower on
-    large viewports; correctness over speed on affected devices)
+  - a real cold start on the user's device (install + tap to open)
+  - the DoH/raw-HTTP path that exercises the re-created RawResponse$1
   - the renamed JNI export resolving on a real ART runtime (verified by the
     ELF hash simulation inside scripts/patch_btcore_jni.py, not by dlopen)
+  - software-rendered WebView UI smoothness on affected devices
+
+If anything still goes wrong at launch, the app now leaves evidence:
+  adb logcat -s JVHD-CRASH
+  adb shell cat /sdcard/Android/data/com.JVHD.vip/files/jvhd-crash.txt

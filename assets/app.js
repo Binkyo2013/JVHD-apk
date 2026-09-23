@@ -6,12 +6,11 @@
        - Cập nhật bố cục thời tiết: Icon + Nhiệt độ (ngang), Mô tả (dưới).
        ===================================================== */
 
-    // [BinTV JVHD-STANDALONE 2026-08] Khi index.html khai báo
-    // window.__BINTV_JVHD_STANDALONE__ = true (bản APK JVHD độc lập), ứng dụng
+    // [JVHD-VIP2 2026-09] Khi index.html khai báo
+    // window.__JVHD_STANDALONE__ = true (bản APK JVHD độc lập), ứng dụng
     // khởi động thẳng vào JVHD thay vì màn launcher. Mọi nhánh dưới đây đều
-    // khóa bằng flag này - khi flag không được set (APK BinTV gốc), toàn bộ
-    // hành vi của BinTV giữ nguyên 100%.
-    var BINTV_JVHD_STANDALONE = !!window.__BINTV_JVHD_STANDALONE__;
+    // khóa bằng flag này.
+    var JVHD_STANDALONE = !!window.__JVHD_STANDALONE__;
 
     var apps = [];
     var installedApps = [];
@@ -70,11 +69,10 @@
     var jvhdUserGateOpen = false;
     var jvhdUserChecking = false;
     var jvhdUserCountdownTimer = null;
-    // [BinTV USER-AUTH DEV-BIND 2026-08] May chu xac thuc phia server: giu anh xa
-    // Username-Hash <-> Device-Public-Key, sinh challenge, verify chu ky ECDSA.
-    // 1 Username = 1 Device; server tu choi device thu hai. Hash allowlist va
-    // binding chi duoc doc/ghi boi JVHD Server.
-    var JVHD_AUTH_API = JVHD_SERVER_BASE;
+    // [JVHD-VIP2 2026-09] May chu xac thuc rieng biet (khac JVHD API server).
+    // Endpoint: /auth/start, /auth/verify, /auth/bind. Host free Render cold-start
+    // co the mat ~20-30s lan dau -> timeout cao, co retry transient.
+    var JVHD_AUTH_API = "https://jvhd-auth.onrender.com";
     var JVHD_USER_FAIL_LIMIT = 3;
     var JVHD_USER_LOCK_MS = 180000;
     var jvhdScreenOpen = false;
@@ -1384,11 +1382,11 @@
         var modal = document.getElementById("bintv-exit-modal");
         if (modal) return modal;
         modal = document.createElement("div"); modal.id = "bintv-exit-modal";
-        // [BinTV JVHD-STANDALONE 2026-08] Bản độc lập dùng tên JVHD trên hộp
+        // [JVHD-VIP2 2026-09] Bản độc lập dùng tên JVHD trên hộp
         // thoại thoát (bản BinTV gốc giữ nguyên chữ BinTV như cũ).
         // [JVHD-VIP2 2026-09] Bản độc lập đã đổi tên ứng dụng thành "JVHD Vip2"
         // (khớp @string/app_name), nên hộp thoại thoát dùng đúng tên mới.
-        var exitBrand = BINTV_JVHD_STANDALONE ? "JVHD Vip2" : "BinTV";
+        var exitBrand = JVHD_STANDALONE ? "JVHD Vip2" : "JVHD";
         modal.innerHTML = '<div class="bintv-exit-backdrop"></div><div class="bintv-exit-dialog" role="dialog" aria-modal="true"><div class="bintv-exit-title">Thoát ' + exitBrand + '?</div><div class="bintv-exit-message">Quét dọn ' + exitBrand + ' và đóng các ứng dụng đã mở, hoặc chỉ thoát ' + exitBrand + '.</div><div class="bintv-exit-actions"><button type="button" class="bintv-exit-button" data-exit-action="scan">Quét</button><button type="button" class="bintv-exit-button" data-exit-action="exit">Thoát</button><button type="button" class="bintv-exit-button" data-exit-action="cancel">Hủy</button></div></div>';
         document.body.appendChild(modal);
         var controls = modal.querySelectorAll(".bintv-exit-button");
@@ -1433,16 +1431,16 @@
             if (index >= apps.length) index = apps.length - 1;
         }
         focusApp();
-        // [BinTV JVHD-STANDALONE 2026-08] Bản độc lập: "Hủy" thoát dialog nhưng
+        // [JVHD-VIP2 2026-09] Bản độc lập: "Hủy" thoát dialog nhưng
         // không có launcher để quay về -> mở lại cổng PIN JVHD (không deadlock).
-        if (BINTV_JVHD_STANDALONE && wasOpen && !jvhdScreenOpen && !jvhdPinOpen && !moviePlayerOpen && !jvhdPlayerSession) setTimeout(launchBuiltinJvhd, 0);
+        if (JVHD_STANDALONE && wasOpen && !jvhdScreenOpen && !jvhdPinOpen && !moviePlayerOpen && !jvhdPlayerSession) setTimeout(launchBuiltinJvhd, 0);
     }
 
     function handleBackKey() {
         if (jvhdUserGateOpen) return true; // [BinTV USER-AUTH] Back khong bo qua xac thuc username
-        if (jvhdPinOpen) { cancelJvhdPinGate(false); if (BINTV_JVHD_STANDALONE) showExitModal(); return true; }
+        if (jvhdPinOpen) { cancelJvhdPinGate(false); if (JVHD_STANDALONE) showExitModal(); return true; }
         if (jvhdResolveInProgress) { cancelJvhdResolution(true); return true; }
-        if (jvhdScreenOpen) { closeJvhdScreen(); if (BINTV_JVHD_STANDALONE) showExitModal(); return true; }
+        if (jvhdScreenOpen) { closeJvhdScreen(); if (JVHD_STANDALONE) showExitModal(); return true; }
         if (exitModalOpen) { closeExitModal(); return true; }
         if (actionMenuOpen) { closeActionMenu(); return true; }
         if (isMultiSelectMode) { selectedAppIds = {}; dropMultiSelectMode(); createApps(); focusApp(); return true; }
@@ -8436,24 +8434,25 @@
     }
 
     function finishJvhdPinAuthorization() {
-        if (jvhdUserGateOpen) return; // [BinTV USER-AUTH] dang trong man username -> mo JVHD sau khi qua xac thuc
+        if (jvhdUserGateOpen) return; // [JVHD-VIP2] dang trong man username -> mo JVHD sau khi qua xac thuc
         if (!jvhdPinOpen || !jvhdPinAuthorized) return;
         if (!jvhdPinConfigPending && !jvhdPinSources.length && !jvhdPinConfigError) {
-            // Authentication has passed: fetch TargetUrl through the server only.
+            // Authentication has passed: fetch TargetUrl.txt directly from GitLab.
             jvhdPinConfigPending = true;
             var configToken = ++jvhdPinAttemptToken;
-            requestJson(JVHD_CONFIG_URL, JVHD_REQUEST_TIMEOUT, function (data) {
+            fetchJvhdTargetUrl(function (error, data) {
                 if (configToken !== jvhdPinAttemptToken || !jvhdPinOpen) return;
+                if (error) {
+                    jvhdPinConfigPending = false;
+                    jvhdPinConfigError = error;
+                    finishJvhdPinAuthorization();
+                    return;
+                }
                 jvhdPinSources = extractJvhdSources(data);
                 jvhdPinConfigPending = false;
                 if (!jvhdPinSources.length) jvhdPinConfigError = new Error("Không có nguồn JVHD");
                 finishJvhdPinAuthorization();
-            }, function (error) {
-                if (configToken !== jvhdPinAttemptToken || !jvhdPinOpen) return;
-                jvhdPinConfigPending = false;
-                jvhdPinConfigError = error || new Error("Không thể tải cấu hình JVHD");
-                finishJvhdPinAuthorization();
-            }, JVHD_CONFIG_RETRY_COUNT);
+            });
             return;
         }
         if (jvhdPinConfigPending) return;
@@ -8483,16 +8482,15 @@
         if (jvhdPinValue !== JVHD_DEFAULT_PIN) {
             cancelJvhdPinGate(false);
             showToast("Mã PIN không đúng");
-            // [BinTV JVHD-STANDALONE 2026-08] Bản độc lập: sai PIN vẫn ở lại
+            // [JVHD-VIP2 2026-09] Bản độc lập: sai PIN vẫn ở lại
             // cổng PIN (không có launcher để quay về) -> mở lại sau câu thông báo.
-            if (BINTV_JVHD_STANDALONE) setTimeout(launchBuiltinJvhd, 400);
+            if (JVHD_STANDALONE) setTimeout(launchBuiltinJvhd, 400);
             return;
         }
         jvhdPinAuthorized = true;
         updateJvhdPinGate();
-        // [BinTV USER-AUTH DEV-BIND 2026-08] PIN dung -> thu xac thuc thiet bi
-        // thong minh (da tung bind thanh cong). Chi khi khong the chung minh moi
-        // hien man Username. Moi lan deu phai qua challenge that cua server.
+        // PIN dung -> thu xac thuc thiet bi thong minh (da tung bind thanh cong).
+        // Chi khi khong the chung minh moi hien man Username. Moi lan deu phai qua challenge that cua server.
         tryJvhdSilentAuth();
     }
 
@@ -9275,12 +9273,12 @@
 
     function init() {
         registerRemoteExitKey();
-        // [BinTV JVHD-STANDALONE 2026-08] Bản JVHD độc lập: khởi động thẳng vào
+        // [JVHD-VIP2 2026-09] Bản JVHD độc lập: khởi động thẳng vào
         // cổng PIN, KHÔNG tạo wallpaper/đồng hồ/thời tiết/danh sách app của
         // BinTV (không request mạng nào cho thời tiết, không timer nền) ->
         // ứng dụng nhẹ và mượt hơn. Bản BinTV gốc không set flag -> giữ nguyên
         // toàn bộ quá trình khởi động như cũ.
-        if (BINTV_JVHD_STANDALONE) { setTimeout(launchBuiltinJvhd, 0); return; }
+        if (JVHD_STANDALONE) { setTimeout(launchBuiltinJvhd, 0); return; }
         initBackgroundLayers(); startWallpaperRotation();
         ensureWeatherElement();
         updateDateTime(); dateTimeTimer = setInterval(updateDateTime, 1000);
@@ -9288,16 +9286,16 @@
         loadInstalledApps(function () { createApps(); focusApp(); scheduleMovieBackgroundPrefetch(); });
     }
 
-    // [JVHD-VIP2 2026-09] Bọc init() để (a) bật cờ __BINTV_JVHD_READY__ khi khởi
+    // [JVHD-VIP2 2026-09] Bọc init() để (a) bật cờ __JVHD_READY__ khi khởi
     // động đã xong - window.onerror trong index.html dựa vào cờ này để không biến
     // một lỗi vặt sau khởi động thành màn hình báo lỗi - và (b) ném lại lỗi khởi
     // động cho handler đó hiển thị thay vì để lại một màn hình đen.
     window.addEventListener("DOMContentLoaded", function () {
         try {
             init();
-            window.__BINTV_JVHD_READY__ = true;
+            window.__JVHD_READY__ = true;
         } catch (startupError) {
-            window.__BINTV_JVHD_STARTUP_ERROR__ = String((startupError && startupError.message) || startupError);
+            window.__JVHD_STARTUP_ERROR__ = String((startupError && startupError.message) || startupError);
             throw startupError;
         }
     });

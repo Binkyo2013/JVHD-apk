@@ -9,8 +9,8 @@
     <title>JVHD Vip2</title>
     <link rel="stylesheet" href="style.css">
     <style>
-        /* [BinTV JVHD-STANDALONE 2026-08] Bản JVHD độc lập: không còn header
-           BinTV, hình nền xoay, đồng hồ/thời tiết hay lưới app của launcher.
+        /* [JVHD-VIP2 2026-09] Bản JVHD độc lập: không còn header
+           JVHD, hình nền xoay, đồng hồ/thời tiết hay lưới app của launcher.
            Trang chỉ chứa JVHD (cổng PIN -> màn hình nguồn -> trình phát) trên
            nền tối đúng tông JVHD (#07070a). Mọi phong cách khác giữ nguyên
            style.css gốc. */
@@ -18,16 +18,16 @@
         #bg, header, main, #apps { display: none !important; }
     </style>
     <script>
-        /* [BinTV JVHD-STANDALONE 2026-08] Đánh dấu chế độ JVHD độc lập cho app.js:
-           khởi động thẳng JVHD, bỏ qua toàn bộ khởi tạo của BinTV. */
-        window.__BINTV_JVHD_STANDALONE__ = true;
+        /* [JVHD-VIP2 2026-09] Đánh dấu chế độ JVHD độc lập cho app.js:
+           khởi động thẳng JVHD, bỏ qua toàn bộ khởi tạo của launcher. */
+        window.__JVHD_STANDALONE__ = true;
 
         /* [JVHD-VIP2 2026-09] WebView có nền đen, nên nếu app.js lỗi lúc khởi động
            (cú pháp không được WebView cũ hỗ trợ, hoặc exception trong init) thì
            người dùng chỉ thấy một màn hình đen và tưởng ứng dụng tự thoát.
            Handler này vẽ một thông báo nhìn thấy được kèm nút "Thử lại".
            QUAN TRỌNG: chỉ can thiệp khi ứng dụng CHƯA khởi động xong
-           (__BINTV_JVHD_READY__ chưa được app.js bật), để một lỗi nhỏ phát sinh
+           (__JVHD_READY__ chưa được app.js bật), để một lỗi nhỏ phát sinh
            sau đó không bao giờ biến thành màn hình báo lỗi toàn màn hình. */
         (function () {
             function showFatal(message) {
@@ -61,13 +61,13 @@
             }
 
             window.onerror = function (message, source, line, column, error) {
-                if (window.__BINTV_JVHD_READY__) return false; // app đang chạy: không chặn
+                if (window.__JVHD_READY__) return false; // app đang chạy: không chặn
                 showFatal((message || "Lỗi không xác định") + (line ? "\n(dòng " + line + ")" : ""));
                 return true;
             };
 
             window.addEventListener("unhandledrejection", function (event) {
-                if (window.__BINTV_JVHD_READY__) return;
+                if (window.__JVHD_READY__) return;
                 showFatal("Lỗi bất đồng bộ: " + String((event && event.reason) || ""));
             });
         })();

@@ -867,6 +867,9 @@ body.bintv-movie-mode > main {
 .movie-seek-timeline-track {
     position: relative; width: 100%; height: 12px; border-radius: 999px;
     background: rgba(255,255,255,.24);
+    /* [BinTV TOUCH 2026-09] Cho phép tương tác cảm ứng trên track */
+    pointer-events: auto;
+    touch-action: none;
 }
 .movie-seek-timeline-progress {
     position: absolute; left: 0; top: 0; bottom: 0; width: 0;

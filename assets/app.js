@@ -38,12 +38,17 @@
     // JVHD sources/TargetUrl are served by JVHD Server. APK never reads the
     // private Member/Hash4/TargetUrl stores directly.
     var JVHD_CONFIG_URL = JVHD_SERVER_BASE + "/config";
+    // [JVHD-VIP2 2026-09] TargetUrl.txt raw GitLab URL. APK fetches directly
+    // to avoid dependency on /config endpoint.
+    var JVHD_TARGETURL_URL = "https://gitlab.com/binmedia-group/jvhd-sever2/-/raw/main/TargetUrl.txt?ref_type=heads";
     var JVHD_REQUEST_TIMEOUT = 12000;
     // [JVHD-VIP2 2026-09] Số lần gọi lại /config khi thất bại tạm thời. Render
     // free tier cold-start có thể mất vài chục giây, nên 2 lần gọi lại (tổng 3
     // lần) với backoff 0.4s -> 0.8s vẫn chưa đủ; vì vậy ngoài retry tự động còn
     // có nút "Thử lại" để người dùng chủ động gọi lại vô hạn.
     var JVHD_CONFIG_RETRY_COUNT = 2;
+    // [JVHD-VIP2 2026-09] Retry count for TargetUrl.txt fetch from GitLab.
+    var JVHD_TARGETURL_RETRY_COUNT = 2;
     var jvhdPinErrorOpen = false;
     var jvhdPinErrorFocus = 0;
     var JVHD_RESOLVE_TIMEOUT = 32000;
@@ -5844,6 +5849,120 @@
             xhr.send();
         } catch (error) { finish(error); }
         return xhr;
+    }
+
+    // [JVHD-VIP2 2026-09] Fetch TargetUrl.txt directly from GitLab raw URL.
+    // Handles redirects, HTTP errors, JSON parsing, and validation.
+    // Retries on transient failures (timeout, 5xx, network error).
+    function fetchJvhdTargetUrl(callback, attempt) {
+        attempt = typeof attempt === "number" ? attempt : 0;
+        var url = JVHD_TARGETURL_URL;
+        var timeout = JVHD_REQUEST_TIMEOUT;
+        var maxAttempts = JVHD_TARGETURL_RETRY_COUNT + 1;
+
+        function finish(error, data) {
+            try { callback(error, data); } catch (callbackError) {}
+        }
+
+        function isTransientError(status) {
+            return !status || status === 408 || status === 429 || status >= 500;
+        }
+
+        function doRequest(currentAttempt) {
+            var xhr = new XMLHttpRequest();
+            var reqFinished = false;
+            var reqTimer = null;
+
+            function reqFinish(err, result) {
+                if (reqFinished) return;
+                reqFinished = true;
+                if (reqTimer) clearTimeout(reqTimer);
+
+                if (err) {
+                    var transient = err && (err.message === "Request timeout" || err.message === "Network error" ||
+                        (err.message && err.message.indexOf("HTTP ") === 0 && isTransientError(parseInt(err.message.substring(5), 10))));
+                    if (transient && currentAttempt < JVHD_TARGETURL_RETRY_COUNT) {
+                        var wait = 400 * Math.pow(2, currentAttempt);
+                        setTimeout(function () { doRequest(currentAttempt + 1); }, wait);
+                        return;
+                    }
+                    finish(err, null);
+                    return;
+                }
+
+                var text = result.text || "";
+                if (!text) {
+                    finish(new Error("TargetUrl.txt empty"), null);
+                    return;
+                }
+
+                var json;
+                try {
+                    json = JSON.parse(text);
+                } catch (parseError) {
+                    finish(new Error("TargetUrl.txt JSON invalid: " + parseError.message), null);
+                    return;
+                }
+
+                if (!json || typeof json !== "object") {
+                    finish(new Error("TargetUrl.txt not an object"), null);
+                    return;
+                }
+
+                var hasSource = false;
+                var keys = Object.keys(json);
+                for (var i = 0; i < keys.length; i++) {
+                    var key = keys[i];
+                    if (/^source\d+$/i.test(key)) {
+                        var entry = json[key];
+                        if (entry && typeof entry === "object" && typeof entry.name === "string" && entry.name.trim() &&
+                            typeof entry.url === "string" && entry.url.trim()) {
+                            hasSource = true;
+                            break;
+                        }
+                    }
+                }
+                if (!hasSource) {
+                    finish(new Error("TargetUrl.txt no valid source"), null);
+                    return;
+                }
+
+                finish(null, json);
+            }
+
+            try {
+                xhr.open("GET", url, true);
+                xhr.timeout = timeout;
+                xhr.onreadystatechange = function () {
+                    if (xhr.readyState !== 4) return;
+                    if (xhr.status >= 200 && xhr.status < 400) {
+                        var contentType = "";
+                        try { contentType = xhr.getResponseHeader("Content-Type") || ""; } catch (e) {}
+                        var responseText = xhr.responseText || "";
+                        if (contentType.toLowerCase().indexOf("text/html") !== -1 ||
+                            responseText.trim().indexOf("<!DOCTYPE") === 0 ||
+                            responseText.trim().indexOf("<html") === 0) {
+                            reqFinish(new Error("TargetUrl.txt returned HTML (redirect)"), null);
+                            return;
+                        }
+                        reqFinish(null, {
+                            text: responseText,
+                            url: xhr.responseURL || url,
+                            contentType: contentType,
+                            status: xhr.status
+                        });
+                    } else {
+                        reqFinish(new Error("HTTP " + xhr.status), null);
+                    }
+                };
+                xhr.onerror = function () { reqFinish(new Error("Network error"), null); };
+                xhr.ontimeout = function () { reqFinish(new Error("Request timeout"), null); };
+                reqTimer = setTimeout(function () { try { xhr.abort(); } catch (e) {} reqFinish(new Error("Request timeout"), null); }, timeout + 500);
+                xhr.send();
+            } catch (e) { reqFinish(e, null); }
+        }
+
+        doRequest(attempt);
     }
 
     // [BinTV ISP-BYPASS 2026-08] Tải text nguồn CÓ dự phòng qua proxy native:

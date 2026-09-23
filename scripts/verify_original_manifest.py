@@ -43,6 +43,7 @@ BUILD_OPTIMISED_PREFIXES = ("res/",)
 EXPECTED_CHANGED = {
     "assets/app.js": "intentionally migrated to the JVHD backend (checked-in file is authoritative)",
     "assets/index.html": "intentionally migrated to the JVHD backend (checked-in file is authoritative)",
+    "assets/style.css": "intentionally migrated to JVHD-VIP2 black/white theme (checked-in file is authoritative)",
     "assets/tizen_shim.js": "fallback appId renamed with the package to com.JVHD.vip (checked-in file is authoritative)",
     "lib/arm64-v8a/libbtcore.so": "JNI export renamed for com.JVHD.vip by scripts/patch_btcore_jni.py, hash tables rebuilt + lookup verified",
     "lib/armeabi-v7a/libbtcore.so": "JNI export renamed for com.JVHD.vip by scripts/patch_btcore_jni.py, hash tables rebuilt + lookup verified",

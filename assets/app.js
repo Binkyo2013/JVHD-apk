@@ -40,6 +40,12 @@
     // [JVHD-VIP2 2026-09] TargetUrl.txt raw GitLab URL. APK fetches directly
     // to avoid dependency on /config endpoint.
     var JVHD_TARGETURL_URL = "https://gitlab.com/binmedia-group/jvhd-sever2/-/raw/main/TargetUrl.txt?ref_type=heads";
+    // [JVHD-AUTH-FIX] Salt.txt raw GitLab URL. The username hash is
+    // SHA-256(lowercase(username) + SALT); the SALT is read from this canonical
+    // file (never hard-coded) so the APK and the server's Hash4.txt stay in
+    // sync. Previously the salt lived only inside the opaque native lib and was
+    // never applied, which is why every valid username was rejected.
+    var JVHD_SALT_URL = "https://gitlab.com/binmedia-group/jvhd-sever2/-/raw/main/Salt.txt?ref_type=heads";
     var JVHD_REQUEST_TIMEOUT = 12000;
     // [JVHD-VIP2 2026-09] Số lần gọi lại /config khi thất bại tạm thời. Render
     // free tier cold-start có thể mất vài chục giây, nên 2 lần gọi lại (tổng 3
@@ -63,8 +69,9 @@
     var jvhdPinSources = [];
     var jvhdPinConfigError = null;
     // [BinTV USER-AUTH 2026-08] Xac thuc Username sau PIN dung (bao mat lai):
-    // hash SHA-256(username + SALT) chi duoc tinh trong native lib qua
-    // AndroidBridge; danh sach hash tai tu JVHD Server; 3 lan sai lien tiep ->
+    // hash SHA-256(lowercase(username) + SALT) duoc tinh bang JS (jvhdSha256Hex)
+    // voi SALT tai tu Salt.txt; danh sach hash tai tu JVHD Server; 3 lan sai
+    // lien tiep ->
     // khoa 3 phut theo thoi gian thuc (localStorage, reload khong reset).
     var jvhdUserGateOpen = false;
     var jvhdUserChecking = false;
@@ -75,6 +82,9 @@
     var JVHD_AUTH_API = "https://jvhd-auth.onrender.com";
     var JVHD_USER_FAIL_LIMIT = 3;
     var JVHD_USER_LOCK_MS = 180000;
+    // [JVHD-AUTH-FIX] Salt used for username hashing, loaded from Salt.txt.
+    // null until first successful fetch; login hashing waits for it (fail-closed).
+    var jvhdSalt = null;
     var jvhdScreenOpen = false;
     var jvhdSources = [];
     var jvhdActiveSource = 0;
@@ -5850,6 +5860,145 @@
         return xhr;
     }
 
+    // [JVHD-AUTH-FIX] SHA-256 (UTF-8 in, lowercase hex out), implemented in
+    // pure JS so the exact formula is transparent and verifiable. This replaces
+    // the opaque native hash which did not apply the SALT.
+    function jvhdSha256Hex(message) {
+        function utf8Bytes(str) {
+            var bytes = [];
+            for (var i = 0; i < str.length; i++) {
+                var c = str.charCodeAt(i);
+                if (c < 0x80) {
+                    bytes.push(c);
+                } else if (c < 0x800) {
+                    bytes.push(0xc0 | (c >> 6), 0x80 | (c & 0x3f));
+                } else if (c >= 0xd800 && c <= 0xdbff) {
+                    var c2 = str.charCodeAt(++i);
+                    var cp = 0x10000 + ((c & 0x3ff) << 10) + (c2 & 0x3ff);
+                    bytes.push(0xf0 | (cp >> 18), 0x80 | ((cp >> 12) & 0x3f), 0x80 | ((cp >> 6) & 0x3f), 0x80 | (cp & 0x3f));
+                } else {
+                    bytes.push(0xe0 | (c >> 12), 0x80 | ((c >> 6) & 0x3f), 0x80 | (c & 0x3f));
+                }
+            }
+            return bytes;
+        }
+        var K = [
+            0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
+            0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,
+            0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,
+            0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,
+            0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,
+            0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,
+            0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,
+            0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2
+        ];
+        var H = [0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19];
+        var bytes = utf8Bytes(message);
+        var origLen = bytes.length;
+        bytes.push(0x80);
+        while (bytes.length % 64 !== 56) bytes.push(0);
+        var bitLen = origLen * 8;
+        var hi = Math.floor(bitLen / 0x100000000);
+        var lo = bitLen >>> 0;
+        bytes.push((hi >>> 24)&0xff,(hi >>> 16)&0xff,(hi >>> 8)&0xff,hi&0xff);
+        bytes.push((lo >>> 24)&0xff,(lo >>> 16)&0xff,(lo >>> 8)&0xff,lo&0xff);
+        function rotr(x,n){ return (x>>>n)|(x<<(32-n)); }
+        for (var off = 0; off < bytes.length; off += 64) {
+            var w = new Array(64);
+            for (var i = 0; i < 16; i++) {
+                w[i] = (bytes[off+i*4]<<24)|(bytes[off+i*4+1]<<16)|(bytes[off+i*4+2]<<8)|(bytes[off+i*4+3]);
+            }
+            for (var j = 16; j < 64; j++) {
+                var s0 = rotr(w[j-15],7)^rotr(w[j-15],18)^(w[j-15]>>>3);
+                var s1 = rotr(w[j-2],17)^rotr(w[j-2],19)^(w[j-2]>>>10);
+                w[j] = (w[j-16] + s0 + w[j-7] + s1) | 0;
+            }
+            var a=H[0],b=H[1],c=H[2],d=H[3],e=H[4],f=H[5],g=H[6],h=H[7];
+            for (var t = 0; t < 64; t++) {
+                var S1 = rotr(e,6)^rotr(e,11)^rotr(e,25);
+                var ch = (e&f)^((~e)&g);
+                var t1 = (h + S1 + ch + K[t] + w[t]) | 0;
+                var S0 = rotr(a,2)^rotr(a,13)^rotr(a,22);
+                var maj = (a&b)^(a&c)^(b&c);
+                var t2 = (S0 + maj) | 0;
+                h=g; g=f; f=e; e=(d+t1)|0; d=c; c=b; b=a; a=(t2+t1)|0;
+            }
+            H[0]=(H[0]+a)|0; H[1]=(H[1]+b)|0; H[2]=(H[2]+c)|0; H[3]=(H[3]+d)|0;
+            H[4]=(H[4]+e)|0; H[5]=(H[5]+f)|0; H[6]=(H[6]+g)|0; H[7]=(H[7]+h)|0;
+        }
+        var hex = "";
+        for (var k = 0; k < 8; k++) {
+            hex += ("00000000" + ((H[k]>>>0).toString(16))).slice(-8);
+        }
+        return hex;
+    }
+
+    // [JVHD-AUTH-FIX] Fetch Salt.txt (plain text) from the canonical GitLab URL.
+    // The salt is the second operand of SHA-256(lowercase(username) + SALT).
+    // Retries transient failures the same way TargetUrl.txt does.
+    function fetchJvhdSalt(callback, attempt) {
+        attempt = typeof attempt === "number" ? attempt : 0;
+        var url = JVHD_SALT_URL;
+        var timeout = JVHD_REQUEST_TIMEOUT;
+        function finish(error, value) {
+            try { if (callback) callback(error, value); } catch (e) {}
+        }
+        function isTransient(status) {
+            return !status || status === 408 || status === 429 || status >= 500;
+        }
+        function doRequest(currentAttempt) {
+            var xhr = new XMLHttpRequest();
+            var reqDone = false;
+            var reqTimer = null;
+            function reqFinish(err, text) {
+                if (reqDone) return;
+                reqDone = true;
+                if (reqTimer) clearTimeout(reqTimer);
+                if (err) {
+                    var transient = err && (err.message === "Request timeout" || err.message === "Network error" ||
+                        (err.message && err.message.indexOf("HTTP ") === 0 && isTransient(parseInt(err.message.substring(5), 10))));
+                    if (transient && currentAttempt < JVHD_TARGETURL_RETRY_COUNT) {
+                        setTimeout(function () { doRequest(currentAttempt + 1); }, 400 * Math.pow(2, currentAttempt));
+                        return;
+                    }
+                    finish(err, null);
+                    return;
+                }
+                // Strip BOM + surrounding whitespace/newline so the salt bytes
+                // are exactly what the hash formula expects.
+                var s = String(text || "").replace(/^﻿/, "").trim();
+                if (!s) { finish(new Error("Salt.txt empty"), null); return; }
+                jvhdSalt = s;
+                finish(null, s);
+            }
+            try {
+                xhr.open("GET", url, true);
+                xhr.timeout = timeout;
+                xhr.onreadystatechange = function () {
+                    if (xhr.readyState !== 4) return;
+                    if (xhr.status >= 200 && xhr.status < 400) {
+                        var ct = "";
+                        try { ct = xhr.getResponseHeader("Content-Type") || ""; } catch (e) {}
+                        var rt = xhr.responseText || "";
+                        if (ct.toLowerCase().indexOf("text/html") !== -1 ||
+                            rt.trim().indexOf("<!DOCTYPE") === 0 || rt.trim().indexOf("<html") === 0) {
+                            reqFinish(new Error("Salt.txt returned HTML (redirect)"), null);
+                            return;
+                        }
+                        reqFinish(null, rt);
+                    } else {
+                        reqFinish(new Error("HTTP " + xhr.status), null);
+                    }
+                };
+                xhr.onerror = function () { reqFinish(new Error("Network error"), null); };
+                xhr.ontimeout = function () { reqFinish(new Error("Request timeout"), null); };
+                reqTimer = setTimeout(function () { try { xhr.abort(); } catch (e) {} reqFinish(new Error("Request timeout"), null); }, timeout + 500);
+                xhr.send();
+            } catch (sendErr) { reqFinish(new Error("Network error"), null); }
+        }
+        doRequest(attempt);
+    }
+
     // [JVHD-VIP2 2026-09] Fetch TargetUrl.txt directly from GitLab raw URL.
     // Handles redirects, HTTP errors, JSON parsing, and validation.
     // Retries on transient failures (timeout, 5xx, network error).
@@ -8621,7 +8770,8 @@
 
     // ===== [BinTV USER-AUTH 2026-08] Man Xac thuc Username (hien sau khi PIN dung) =====
     // Chi THEM man chan moi; khong doi UI/logic/duong dan nao khac cua JVHD.
-    // Bao mat: khong console.log username/hash; SALT chi nam trong native lib;
+    // Bao mat: khong console.log username/hash; SALT duoc tai tu Salt.txt va
+    // ap dung trong jvhdUserNativeHash (SHA-256(lowercase(username) + SALT)).
     // JS chi nhan chuoi hash 64 ky tu hex; allowlist do JVHD Server kiem tra.
     function jvhdUserLs() {
         try { return window.localStorage || null; } catch (lsError) { return null; }
@@ -8672,9 +8822,14 @@
     }
     function jvhdUserNativeHash(name) {
         try {
-            var bridge = window.AndroidBridge;
-            if (!bridge || typeof bridge.c0 !== "function") return null;
-            var digest = bridge.c0(String(name));
+            // [JVHD-AUTH-FIX] Compute SHA-256(lowercase(username) + SALT) in JS.
+            // `name` is already trimmed + lowercased by the caller; jvhdSalt is
+            // loaded from Salt.txt. The opaque native hash (c0) is intentionally
+            // NOT used here: it never applied the SALT, which is why every valid
+            // username was rejected with "Tên người dùng không đúng". Fail-closed
+            // if the salt has not loaded yet.
+            if (!jvhdSalt) return null;
+            var digest = jvhdSha256Hex(String(name) + String(jvhdSalt));
             if (typeof digest !== "string") return null;
             return /^[0-9a-f]{64}$/.test(digest) ? digest : null;
         } catch (e) { return null; }
@@ -8807,6 +8962,8 @@
     function openJvhdUserGate() {
         jvhdUserGateOpen = true;
         jvhdUserChecking = false;
+        // [JVHD-AUTH-FIX] Đảm bảo SALT đã sẵn sàng trước khi người dùng gửi.
+        if (!jvhdSalt) fetchJvhdSalt(function () {});
         var gate = ensureJvhdUserGate();
         gate.classList.add("show");
         updateJvhdUserGate();
@@ -8927,8 +9084,15 @@
         }
         var digest = jvhdUserNativeHash(name);
         if (!digest) {
-            // Fail-closed: thiet bi khong co native hash -> khong cho qua.
-            if (status) status.textContent = "Thiết bị không hỗ trợ xác thực, không thể tiếp tục";
+            if (!jvhdSalt) {
+                // [JVHD-AUTH-FIX] SALT chưa tải xong -> yêu cầu tải lại và bảo
+                // người dùng thử lại (không phải lỗi thiết bị/thiếu native).
+                fetchJvhdSalt(function () {});
+                if (status) status.textContent = "Đang tải cấu hình xác thực, vui lòng thử lại";
+            } else {
+                // Fail-closed: không tính được hash -> không cho qua.
+                if (status) status.textContent = "Thiết bị không hỗ trợ xác thực, không thể tiếp tục";
+            }
             return;
         }
         var bridge = null;
@@ -9300,6 +9464,8 @@
 
     function init() {
         registerRemoteExitKey();
+        // [JVHD-AUTH-FIX] Tải SALT sớm (cần cho băm username khi xác thực).
+        fetchJvhdSalt(function () {});
         // [JVHD-VIP2 2026-09] Bản JVHD độc lập: khởi động thẳng vào
         // cổng PIN, KHÔNG tạo wallpaper/đồng hồ/thời tiết/danh sách app của
         // BinTV (không request mạng nào cho thời tiết, không timer nền) ->

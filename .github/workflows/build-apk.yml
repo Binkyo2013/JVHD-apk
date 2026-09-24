@@ -31,6 +31,19 @@ jobs:
           echo "against Hash4.txt. Fails the build if the formula ever drifts."
           node scripts/test_auth_hash.js
 
+      - name: Verify APK auth flow + error handling (auth flow regression test)
+        run: |
+          set -euo pipefail
+          echo "Running scripts/test_auth_flow.js — loads the real assets/app.js in a"
+          echo "stubbed WebView and drives the real login gate against a scripted server."
+          echo "It asserts: success for the old protocol AND alternative API shapes"
+          echo "({success:true}/{valid:true}/token/user), differentiated error messages"
+          echo "(5xx / 400 / offline / invalid JSON / wrong Salt.txt / allowlist unloaded),"
+          echo "no 3-attempt lock for non-credential faults, Salt.txt validation, and"
+          echo "that a response format change can never surface as a wrong username."
+          echo "Fails the build if the login gate or its error handling regresses."
+          node scripts/test_auth_flow.js
+
       - name: Set up JDK 17
         uses: actions/setup-java@v5
         with:

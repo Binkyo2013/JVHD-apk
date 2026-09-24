@@ -124,7 +124,7 @@
     move-object v0, v1
 
     :cond_0
-    const/4 v4, 0x1
+    const/4 v4, 0x2
     invoke-virtual {v0, v4, v1}, Landroid/webkit/WebView;->setLayerType(ILandroid/graphics/Paint;)V
 
     invoke-virtual {v0}, Landroid/webkit/WebView;->getSettings()Landroid/webkit/WebSettings;

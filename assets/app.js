@@ -5333,8 +5333,9 @@
             if (avObject) avObject.style.display = "none";
             if (htmlVideo) {
                 htmlVideo.style.display = "block";
-                if (shouldUseJvhdHls()) {
-                    // LIVE / NEW LIVE: phát bằng hls.js qua proxy (LL-HLS, fMP4).
+                if (shouldUseJvhdHls(url)) {
+                    // [JVHD-FIX 2026-09] LIVE / VIDEO HD / PRN HUB / NEW VIDEO:
+                    // HLS via hls.js (LL-HLS, fMP4) for WebView compatibility.
                     attachJvhdHls(htmlVideo, url);
                 } else {
                     detachJvhdHls();
@@ -6341,8 +6342,18 @@
         } catch (hlsCheckError) { return false; }
     }
 
-    function shouldUseJvhdHls() {
-        return jvhdPlayerSession && jvhdCanUseHls() && !!(jvhdSelectedItem && jvhdSelectedItem.isLive);
+    function shouldUseJvhdHls(url) {
+        if (!jvhdPlayerSession || !jvhdCanUseHls()) return false;
+        if (jvhdSelectedItem && jvhdSelectedItem.isLive) return true;
+        var checkUrl = url || "";
+        if (!checkUrl) {
+            var entry = currentJvhdPlaybackEntry();
+            checkUrl = (entry && entry.url) || "";
+        }
+        // [JVHD-FIX 2026-09] VIDEO HD / PRN HUB / NEW VIDEO: if HLS, use hls.js
+        // WebView on Android TV often doesn't decode HLS natively -> black screen
+        // or audio-only. Using hls.js fixes rendering and keeps proxy rewrite.
+        return /\.m3u8(?:$|[?&#])/i.test(checkUrl);
     }
 
     function detachJvhdHls() {
@@ -7468,6 +7479,32 @@
             if (!preferredVideoHd1080 && qualities["1080"]) preferredVideoHd1080 = { url: qualities["1080"], score: videoHdMaster.score + 1, order: videoHdMaster.order };
             if (preferredVideoHd720) {
                 primary = preferredVideoHd720;
+            } else {
+                // [JVHD-FIX 2026-09] If primary is MP4 but HLS variants exist, prefer HLS
+                // for WebView compatibility (hls.js) and quality switching.
+                var isPrimaryHls = /\.m3u8(?:$|[?&#])/i.test(primary.url || "");
+                if (!isPrimaryHls) {
+                    var bestHls = null;
+                    var bestHeight = 0;
+                    for (var qKey in qualities) {
+                        if (!Object.prototype.hasOwnProperty.call(qualities, qKey)) continue;
+                        var h = parseInt(qKey, 10) || 0;
+                        if (h > bestHeight) {
+                            bestHeight = h;
+                            bestHls = qualities[qKey];
+                        }
+                    }
+                    if (bestHls) {
+                        for (var vi = 0; vi < list.length; vi++) {
+                            if (list[vi].url === bestHls) { primary = list[vi]; break; }
+                        }
+                        if (primary.url !== bestHls) primary = { url: bestHls, score: (primary.score || 100) + 1, order: primary.order || 0 };
+                    } else if (list.length > 1) {
+                        for (var vj = 0; vj < list.length; vj++) {
+                            if (/\.m3u8(?:$|[?&#])/i.test(list[vj].url)) { primary = list[vj]; break; }
+                        }
+                    }
+                }
             }
             return { main: primary, alternates: alternates, qualities: qualities };
         }

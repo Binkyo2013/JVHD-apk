@@ -12,9 +12,9 @@
         /* [JVHD-VIP2 2026-09] Bản JVHD độc lập: không còn header
            JVHD, hình nền xoay, đồng hồ/thời tiết hay lưới app của launcher.
            Trang chỉ chứa JVHD (cổng PIN -> màn hình nguồn -> trình phát) trên
-           nền tối đúng tông JVHD (#07070a). Mọi phong cách khác giữ nguyên
+           nền tối đúng tông JVHD (#000000). Mọi phong cách khác giữ nguyên
            style.css gốc. */
-        html, body { margin: 0; padding: 0; background: #07070a !important; overflow: hidden; }
+        html, body { margin: 0; padding: 0; background: #000000 !important; overflow: hidden; }
         #bg, header, main, #apps { display: none !important; }
     </style>
     <script>
@@ -38,7 +38,7 @@
                         box.id = "bintv-js-fatal";
                         box.style.cssText = "position:fixed;top:0;left:0;right:0;bottom:0;z-index:2147483647;" +
                             "display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;" +
-                            "background:#07070a;color:#ffffff;font-family:sans-serif;text-align:center;padding:48px;";
+                            "background:#000000;color:#ffffff;font-family:sans-serif;text-align:center;padding:48px;";
                         (document.body || document.documentElement).appendChild(box);
                     }
                     while (box.firstChild) box.removeChild(box.firstChild);

@@ -8772,16 +8772,6 @@
         jvhdUserChecking = false;
         var gate = ensureJvhdUserGate();
         gate.classList.add("show");
-        // [BinTV USER-AUTH DEV-BIND 2026-08] Warm-up may chu (host free co the
-        // ngu lanh) — fire-and-forget, ket qua bo qua, khong anh huong UI.
-        try {
-            var warmXhr = new XMLHttpRequest();
-            warmXhr.timeout = 25000;
-            warmXhr.onerror = function () {};
-            warmXhr.ontimeout = function () {};
-            warmXhr.open("GET", JVHD_AUTH_API + "/health", true);
-            warmXhr.send(null);
-        } catch (warmError) {}
         updateJvhdUserGate();
         if (jvhdUserLockRemaining() > 0) startJvhdUserCountdown();
         else {

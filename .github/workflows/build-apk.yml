@@ -23,6 +23,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
+      - name: Verify APK username-hash formula (auth regression test)
+        run: |
+          set -euo pipefail
+          echo "Running scripts/test_auth_hash.js — asserts the APK computes"
+          echo "SHA-256(lowercase(username) + SALT) which the auth server checks"
+          echo "against Hash4.txt. Fails the build if the formula ever drifts."
+          node scripts/test_auth_hash.js
+
       - name: Set up JDK 17
         uses: actions/setup-java@v5
         with:

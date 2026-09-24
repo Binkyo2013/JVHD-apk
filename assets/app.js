@@ -42,10 +42,30 @@
     var JVHD_TARGETURL_URL = "https://gitlab.com/binmedia-group/jvhd-sever2/-/raw/main/TargetUrl.txt?ref_type=heads";
     // [JVHD-AUTH-FIX] Salt.txt raw GitLab URL. The username hash is
     // SHA-256(lowercase(username) + SALT); the SALT is read from this canonical
-    // file (never hard-coded) so the APK and the server's Hash4.txt stay in
-    // sync. Previously the salt lived only inside the opaque native lib and was
-    // never applied, which is why every valid username was rejected.
+    // file so the APK and the server's Hash4.txt stay in sync. The value in this
+    // file must be plain lowercase hex — it is validated on load (see
+    // jvhdNormalizeSalt) because a quoted/uppercased/wrapped salt would silently
+    // produce hashes absent from Hash4.txt and reject every valid username.
     var JVHD_SALT_URL = "https://gitlab.com/binmedia-group/jvhd-sever2/-/raw/main/Salt.txt?ref_type=heads";
+    // [JVHD-AUTH-FIX 2026-09 R2] Last-resort SALT when Salt.txt cannot be read.
+    // This is the salt the live Hash4 allowlist was generated from (verified
+    // against the production bindings of 29-30/08/2026: BKyo112 -> 7da8858b...,
+    // JVHD112 -> a4c80b2e..., Admin2 -> 37b5d924...). Used ONLY if the file is
+    // unreachable/invalid, and every use is marked saltSource="fallback" in the
+    // gate so a wrong value can never masquerade as "user does not exist".
+    var JVHD_SALT_FALLBACK = "4f4e804da5c307dd7d88d2b58e1a44c6b312c1430ff4d29d";
+    // [JVHD-AUTH-FIX 2026-09 R2] Salt.txt must be plain lowercase hex. A file
+    // that is quoted, uppercase, prefixed with "SALT=" or wrapped in a JSON
+    // object still parses as a non-empty string but silently produces a hash
+    // that is absent from Hash4.txt -> misleading "Tên người dùng không đúng".
+    var JVHD_SALT_RE = /^[0-9a-f]{16,128}$/;
+    // [JVHD-AUTH-FIX 2026-09 R2] "Sniff" mode: when the live response is
+    // unrecognised, read-only probes of the candidate digests tell us WHICH side
+    // is wrong (client hash vs server allowlist) instead of blaming the user.
+    // Probes are POST /auth/start only (which mints a 120s nonce); /auth/bind is
+    // never called by a probe, so no device binding can ever be created/removed
+    // and no data file (Member/Salt/Hash4) is touched.
+    var JVHD_AUTH_SNIFF = true;
     var JVHD_REQUEST_TIMEOUT = 12000;
     // [JVHD-VIP2 2026-09] Số lần gọi lại /config khi thất bại tạm thời. Render
     // free tier cold-start có thể mất vài chục giây, nên 2 lần gọi lại (tổng 3
@@ -79,12 +99,19 @@
     // [JVHD-VIP2 2026-09] May chu xac thuc rieng biet (khac JVHD API server).
     // Endpoint: /auth/start, /auth/verify, /auth/bind. Host free Render cold-start
     // co the mat ~20-30s lan dau -> timeout cao, co retry transient.
+    // [JVHD-AUTH-FIX 2026-09 R2] Bien rieng cho control-plane /config (lấy danh
+    // sách nguồn) đã tách khỏi API xác thực. Đổi JVHD_AUTH_API ở ĐÚNG MỘT CHỖ này
+    // nếu control-plane đổi host; KHÔNG hard-code host ở nơi khác.
     var JVHD_AUTH_API = "https://jvhd-auth.onrender.com";
     var JVHD_USER_FAIL_LIMIT = 3;
     var JVHD_USER_LOCK_MS = 180000;
     // [JVHD-AUTH-FIX] Salt used for username hashing, loaded from Salt.txt.
     // null until first successful fetch; login hashing waits for it (fail-closed).
     var jvhdSalt = null;
+    // [JVHD-AUTH-FIX 2026-09 R2] true when the current salt came from Salt.txt
+    // (source of truth); false when JVHD_SALT_FALLBACK had to be used. Surfaced
+    // in the gate status so a wrong salt can never look like a wrong username.
+    var jvhdSaltFromFile = false;
     var jvhdScreenOpen = false;
     var jvhdSources = [];
     var jvhdActiveSource = 0;
@@ -5861,8 +5888,9 @@
     }
 
     // [JVHD-AUTH-FIX] SHA-256 (UTF-8 in, lowercase hex out), implemented in
-    // pure JS so the exact formula is transparent and verifiable. This replaces
-    // the opaque native hash which did not apply the SALT.
+    // pure JS so the exact formula is transparent and verifiable. Used as the
+    // salted fallback next to the native bridge hash (bridge.c0), and as the
+    // reference implementation the CI regression test extracts and checks.
     function jvhdSha256Hex(message) {
         function utf8Bytes(str) {
             var bytes = [];
@@ -5936,12 +5964,23 @@
     // [JVHD-AUTH-FIX] Fetch Salt.txt (plain text) from the canonical GitLab URL.
     // The salt is the second operand of SHA-256(lowercase(username) + SALT).
     // Retries transient failures the same way TargetUrl.txt does.
+    // [JVHD-AUTH-FIX 2026-09 R2] The body is validated with jvhdNormalizeSalt()
+    // (no more silent "any non-empty string" salt) and the error carries the
+    // reason so the login screen can name the real fault.
     function fetchJvhdSalt(callback, attempt) {
         attempt = typeof attempt === "number" ? attempt : 0;
         var url = JVHD_SALT_URL;
         var timeout = JVHD_REQUEST_TIMEOUT;
         function finish(error, value) {
             try { if (callback) callback(error, value); } catch (e) {}
+        }
+        function applyFallback(reason) {
+            var fallback = String(JVHD_SALT_FALLBACK || "");
+            if (!JVHD_SALT_RE.test(fallback)) { finish(reason, null); return; }
+            jvhdSalt = fallback;
+            jvhdSaltFromFile = false;
+            jvhdUserDbg("Salt.txt unusable -> using built-in fallback salt", reason && reason.message);
+            finish(reason, fallback);
         }
         function isTransient(status) {
             return !status || status === 408 || status === 429 || status >= 500;
@@ -5961,14 +6000,22 @@
                         setTimeout(function () { doRequest(currentAttempt + 1); }, 400 * Math.pow(2, currentAttempt));
                         return;
                     }
-                    finish(err, null);
+                    // Unreachable after retries -> keep the app usable with the
+                    // built-in canonical salt instead of failing every login.
+                    applyFallback(err);
                     return;
                 }
-                // Strip BOM + surrounding whitespace/newline so the salt bytes
-                // are exactly what the hash formula expects.
-                var s = String(text || "").replace(/^﻿/, "").trim();
-                if (!s) { finish(new Error("Salt.txt empty"), null); return; }
+                // Strip BOM + surrounding whitespace/newline, then validate the
+                // format (plain lowercase hex) so the salt bytes are exactly what
+                // the hash formula expects.
+                var s = jvhdNormalizeSalt(text);
+                if (!s) {
+                    applyFallback(new Error("Salt.txt không hợp lệ (cần chuỗi hex thường, nhận được: " + jvhdShort(text, 48) + ")"));
+                    return;
+                }
                 jvhdSalt = s;
+                jvhdSaltFromFile = true;
+                jvhdUserDbg("Salt.txt loaded", "len=" + s.length);
                 finish(null, s);
             }
             try {
@@ -8820,19 +8867,71 @@
         var mm = Math.floor(total / 60), ss = total % 60;
         return mm + ":" + (ss < 10 ? "0" : "") + ss;
     }
+    // [JVHD-AUTH-FIX 2026-09 R2] Compute SHA-256(lowercase(username) + SALT) in JS.
+    // `name` is already trimmed + lowercased by the caller. Exported as its own
+    // function so the native bridge can take priority (see jvhdUserNativeHash).
+    function jvhdComputeSaltedHash(name) {
+        if (!jvhdSalt) return null;
+        var digest = jvhdSha256Hex(String(name) + String(jvhdSalt));
+        if (typeof digest !== "string") return null;
+        return /^[0-9a-f]{64}$/.test(digest) ? digest : null;
+    }
     function jvhdUserNativeHash(name) {
         try {
-            // [JVHD-AUTH-FIX] Compute SHA-256(lowercase(username) + SALT) in JS.
-            // `name` is already trimmed + lowercased by the caller; jvhdSalt is
-            // loaded from Salt.txt. The opaque native hash (c0) is intentionally
-            // NOT used here: it never applied the SALT, which is why every valid
-            // username was rejected with "Tên người dùng không đúng". Fail-closed
-            // if the salt has not loaded yet.
-            if (!jvhdSalt) return null;
-            var digest = jvhdSha256Hex(String(name) + String(jvhdSalt));
-            if (typeof digest !== "string") return null;
-            return /^[0-9a-f]{64}$/.test(digest) ? digest : null;
+            // [JVHD-AUTH-FIX 2026-09 R2] Order of preference:
+            //   1) native bridge.c0() — the opaque libbtcore SHA-256 that generated
+            //      the live Hash4 allowlist (verified: c0("admin2") == the Admin2
+            //      binding hash). It needs no network and always applies the salt.
+            //   2) JS SHA-256(lowercase(username) + SALT) from Salt.txt — the
+            //      transparent, verifiable fallback for when c0() is unavailable.
+            // Fail-closed (null) if neither is usable: the caller then shows a
+            // "trying again / unsupported" message, never "wrong username".
+            var bridge = null;
+            try { bridge = window.AndroidBridge || null; } catch (bridgeError) { bridge = null; }
+            if (bridge && typeof bridge.c0 === "function") {
+                var nativeDigest = bridge.c0(String(name));
+                if (typeof nativeDigest === "string" && /^[0-9a-f]{64}$/.test(nativeDigest)) {
+                    return nativeDigest.toLowerCase();
+                }
+            }
+            var digest = jvhdComputeSaltedHash(name);
+            return digest ? digest.toLowerCase() : null;
         } catch (e) { return null; }
+    }
+    // [JVHD-AUTH-FIX 2026-09 R2] Normalise a raw Salt.txt body.
+    // Salt.txt is a plain hex string; accept the legacy/pro producer formats
+    // (quoted "salt", JSON {"salt":".."}, SALT=.., uppercase hex, trailing CRLF,
+    // UTF-8 BOM) instead of silently hashing garbage. Returns null when the value
+    // cannot be trusted to be a salt.
+    function jvhdNormalizeSalt(text) {
+        var s = String(text == null ? "" : text);
+        s = s.replace(/^/, "");                 // UTF-8 BOM
+        s = s.trim();                           // CR/LF/space/tab around the value
+        if (!s) return null;
+        var json = null;
+        if (s.charAt(0) === '"' || s.charAt(0) === "{" || s.charAt(0) === "[") {
+            try { json = JSON.parse(s); } catch (jsonError) { json = null; }
+        }
+        if (typeof json === "string") s = json;
+        else if (json && typeof json.salt === "string") s = json.salt;
+        s = s.replace(/^\s*(?:salt|SALT)\s*[:=]\s*/, "");   // SALT=xxx / "salt": "xxx"
+        s = s.replace(/^["']|["']$/g, "");                  // stray quotes
+        s = s.replace(/\s+/g, "");                          // inner spaces/newlines
+        s = s.trim().toLowerCase();
+        return JVHD_SALT_RE.test(s) ? s : null;
+    }
+    // [JVHD-AUTH-FIX 2026-09 R2] Diagnostics only: never called before the user
+    // has an on-screen status element, so it can never write to the console on
+    // its own. Raw bodies are truncated.
+    function jvhdShort(value, max) {
+        var text = String(value == null ? "" : value).replace(/\s+/g, " ").trim();
+        return text.length > max ? text.slice(0, max) + "…" : text;
+    }
+    function jvhdUserSaltSource() {
+        return jvhdSaltFromFile ? "Salt.txt" : "fallback-const";
+    }
+    function jvhdUserDbg(message, detail) {
+        try { console.log("[JVHD-AUTH] " + message + (detail === undefined ? "" : " :: " + detail)); } catch (logError) {}
     }
     function ensureJvhdUserGate() {
         var gate = document.getElementById("bintv-jvhd-user-gate");
@@ -8935,12 +9034,20 @@
         }
         jvhdUserAuthRequest("/auth/start", { h: stored }, function (r) {
             if (!alive()) { jvhdUserChecking = false; return; }
+            // [JVHD-AUTH-FIX 2026-09 R2] Tolerate alternative response shapes too:
+            // a backend answering {"success":true} must not silently send the user
+            // back to the username screen.
+            if (jvhdAuthStatusOf(r) === "ok") {
+                jvhdUserChecking = false;
+                finishJvhdPinAuthorization();
+                return;
+            }
             if (r && r.status === "challenge") {
                 var sig = bridge.e0(r.challenge);
                 if (!sig) { jvhdUserClearHash(); fallback(); return; }
                 jvhdUserAuthRequest("/auth/verify", { h: stored, sig: sig }, function (v) {
                     if (!alive()) { jvhdUserChecking = false; return; }
-                    if (v && v.status === "ok") {
+                    if (jvhdAuthStatusOf(v) === "ok") {
                         jvhdUserChecking = false;
                         finishJvhdPinAuthorization();
                         return;
@@ -8997,27 +9104,220 @@
         xhr.onreadystatechange = function () {
             if (xhr.readyState !== 4) return;
             var status = xhr.status;
+            var rawBody = "";
+            try { rawBody = xhr.responseText || ""; } catch (readError) { rawBody = ""; }
+            // [JVHD-AUTH-FIX 2026-09 R2] dev trace: raw response, truncated.
+            jvhdUserDbg(path + " <- HTTP " + status, jvhdShort(rawBody, 300));
             if (status < 200 || status >= 300) {
                 var transient = status === 408 || status === 429 || status >= 500;
                 if (transient && attempt < 2) {
                     done(function () { setTimeout(function () { jvhdUserAuthRequest(path, payload, success, failure, attempt + 1); }, 350 * (attempt + 1)); }, null);
-                } else done(failure, { kind: transient ? "network" : "server", status: status, message: "HTTP " + status });
+                } else {
+                    // Keep the parsed body when the server explains itself
+                    // (e.g. 401 {"message":"..."}), so the UI can show it.
+                    var errData = null;
+                    try { errData = JSON.parse(rawBody); } catch (parseError) { errData = null; }
+                    done(failure, {
+                        kind: transient ? "network" : "server",
+                        status: status,
+                        message: errData && (errData.message || errData.error) ? String(errData.message || errData.error) : ("HTTP " + status),
+                        data: errData
+                    });
+                }
                 return;
             }
             var data = null;
-            try { data = JSON.parse(xhr.responseText); } catch (parseError) { done(failure, { kind: "server", message: "invalid response" }); return; }
-            done(success, data);
+            try { data = JSON.parse(rawBody); } catch (parseError) { done(failure, { kind: "server", status: status, message: "invalid response", raw: jvhdShort(rawBody, 200) }); return; }
+            done(success, data, status);
         };
         xhr.onerror = function () {
             if (attempt < 2) done(function () { setTimeout(function () { jvhdUserAuthRequest(path, payload, success, failure, attempt + 1); }, 350 * (attempt + 1)); }, null);
             else done(failure, { kind: "network", message: "network error" });
         };
         try {
+            jvhdUserDbg(path + " -> POST", jvhdShort(JSON.stringify(payload), 300));
             xhr.open("POST", JVHD_AUTH_API + path, true);
             xhr.setRequestHeader("Content-Type", "application/json");
             xhr.timeout = timeoutMs;
             xhr.send(JSON.stringify(payload));
         } catch (sendError) { done(failure, { kind: "network", message: String(sendError) }); }
+    }
+    // [JVHD-AUTH-FIX 2026-09 R2] Read the auth decision out of a 2xx body.
+    // The current server answers {"status":"bind"|"challenge"|"denied"|"bad"|
+    // "unknown"|"unavailable"}; older/alternative backends answer with
+    // boolean/token shapes ({"success":true} / {"valid":true} / {"token":..}).
+    // Both are honoured, so a changed response format can no longer be mistaken
+    // for a rejected username.
+    function jvhdAuthStatusOf(data) {
+        if (!data || typeof data !== "object") return "unknown";
+        var status = typeof data.status === "string" ? data.status.toLowerCase() : "";
+        // Protocol fields first (current server): bind carries a nonce,
+        // challenge carries a challenge string.
+        if (status === "bind") return "bind";
+        if (status === "challenge") return "challenge";
+        if (data.binding === true || data.bind === true || data.needBind === true) return "bind";
+        if (data.challenge) return "challenge";
+        if (data.nonce) return "bind";
+        if (status === "ok" || status === "success" || data.success === true || data.valid === true ||
+            data.ok === true || data.token || data.access_token || data.user) return "ok";
+        if (status === "denied" || status === "locked" || data.denied === true) return "denied";
+        if (status === "bad" || status === "expired" || data.valid === false || data.success === false) return "bad";
+        if (status === "unavailable" || status === "error" || data.error) return "unavailable";
+        return "unknown";
+    }
+    // [JVHD-AUTH-FIX 2026-09 R2] Read-only diagnostic: one extra POST /auth/start
+    // with a candidate digest tells us whether that digest is accepted by the
+    // server allowlist. Never sends a key/signature, never calls /auth/bind, so
+    // no binding and no data file can be touched. Retries are disabled on purpose.
+    function jvhdProbeDigest(digest, done) {
+        jvhdUserAuthRequest("/auth/start", { h: digest }, function (r) {
+            done(jvhdAuthStatusOf(r));
+        }, function (fail) {
+            done("error" + ((fail && fail.status) ? ":" + fail.status : ""));
+        }, 2);
+    }
+    // [JVHD-AUTH-FIX 2026-09 R2] Read-only GET /health probe. The auth server
+    // reports whether it actually loaded its username allowlist
+    // ({"onedrive":{"hash4":{"ok":<bool>,"count":<n>}}}); when that store failed
+    // to load, EVERY username is answered "unknown", so that — not the user — is
+    // what must be reported. Endpoints/servers that do not expose it (or answer
+    // 405 like the deployed host once did) simply yield no extra information.
+    function jvhdAuthHealthProbe(done) {
+        var xhr = new XMLHttpRequest();
+        var settled = false;
+        var timer = 0;
+        function finish(info) {
+            if (settled) return;
+            settled = true;
+            if (timer) clearTimeout(timer);
+            done(info);
+        }
+        try {
+            xhr.open("GET", JVHD_AUTH_API + "/health", true);
+            xhr.timeout = 8000;
+            xhr.onreadystatechange = function () {
+                if (xhr.readyState !== 4) return;
+                var body = "";
+                try { body = xhr.responseText || ""; } catch (readError) { body = ""; }
+                jvhdUserDbg("/health <- HTTP " + xhr.status, jvhdShort(body, 200));
+                if (xhr.status < 200 || xhr.status >= 300) { finish(null); return; }
+                var data = null;
+                try { data = JSON.parse(body); } catch (parseError) { data = null; }
+                finish(data && typeof data === "object" ? data : null);
+            };
+            xhr.onerror = function () { finish(null); };
+            xhr.ontimeout = function () { finish(null); };
+            timer = setTimeout(function () { try { xhr.abort(); } catch (abortError) {} finish(null); }, 8500);
+            xhr.send();
+        } catch (sendError) { finish(null); }
+    }
+    // [JVHD-AUTH-FIX 2026-09 R2] When the live answer is not bind/challenge/ok,
+    // the message must name the real fault instead of blaming the user:
+    //   * {"status":"unavailable"} / every probe erroring  -> server fault
+    //   * canonical-salt digest accepted but ours rejected -> Salt.txt is wrong
+    //   * native c0 digest accepted but ours rejected      -> hash formula drift
+    //   * a previously bound hash (control) accepted       -> allowlist is alive,
+    //                                                         so the username really
+    //                                                         is not a valid one
+    //   * nothing provable, but /health says the allowlist failed to load
+    //                                                     -> server data fault
+    // Success/failure decisions are untouched: a probe can only change the TEXT.
+    function jvhdUserAuthDiagnose(name, digest, data, done) {
+        var guid = jvhdShort(name, 32);
+        var status = jvhdAuthStatusOf(data);
+        jvhdUserDbg("diagnose start", "status=" + status + " saltSource=" + jvhdUserSaltSource() + " probe=" + (JVHD_AUTH_SNIFF ? "on" : "off"));
+        if (status === "unavailable") {
+            done({ code: "server", message: "Máy chủ xác thực đang gặp sự cố khi đọc danh sách người dùng. Vui lòng thử lại sau.", raw: data });
+            return;
+        }
+        if (!JVHD_AUTH_SNIFF) {
+            done({ code: "unknown", message: null, raw: data });
+            return;
+        }
+        // Candidate digests to probe, in order of diagnostic value.
+        //   * canonical salt      -> if accepted, Salt.txt is the wrong value
+        //   * native bridge c0()  -> if accepted, the JS formula is the wrong one
+        //   * stored hash         -> CONTROL: a hash this device bound earlier.
+        //     If the control is accepted the allowlist is alive and working, so a
+        //     rejected typed username really is not in the list ("unknown user").
+        var candidates = [];
+        function pushCandidate(label, value) {
+            var v = value ? String(value).toLowerCase() : "";
+            if (!v || !/^[0-9a-f]{64}$/.test(v) || v === digest) return;
+            for (var i = 0; i < candidates.length; i++) if (candidates[i].value === v) return;
+            candidates.push({ label: label, value: v });
+        }
+        var oldSalt = jvhdSalt;
+        jvhdSalt = JVHD_SALT_FALLBACK;
+        pushCandidate("salt canonical", jvhdComputeSaltedHash(name));
+        jvhdSalt = oldSalt;
+        try {
+            var bridge = window.AndroidBridge || null;
+            if (bridge && typeof bridge.c0 === "function") {
+                var nativeDigest = bridge.c0(String(name));
+                if (typeof nativeDigest === "string" && /^[0-9a-f]{64}$/.test(nativeDigest)) pushCandidate("native c0", nativeDigest);
+            }
+        } catch (c0error) {}
+        pushCandidate("control stored", jvhdUserReadHash());
+        var index = 0;
+        var probed = 0;
+        var errored = 0;
+        function finishWith(code, message) {
+            done({ code: code, message: message, raw: data });
+        }
+        function finishUnknown() {
+            // Last resort before blaming the credentials: ask the server, through
+            // its read-only /health, whether it even loaded the allowlist. A store
+            // that failed to load rejects every username, so saying "invalid
+            // credentials" would be a false statement about the user.
+            jvhdAuthHealthProbe(function (health) {
+                var h4 = health && health.onedrive && health.onedrive.hash4 ? health.onedrive.hash4 : null;
+                if (h4 && (h4.ok === false || h4.count === 0)) {
+                    finishWith("server", "Máy chủ xác thực chưa nạp được danh sách người dùng (Hash4: " +
+                        (h4.ok === false ? "ok=false" : "count=" + h4.count) + "). Vui lòng thử lại sau hoặc báo quản trị viên.");
+                    return;
+                }
+                finishWith("unknown", null);
+            });
+        }
+        function next() {
+            if (index >= candidates.length) {
+                // Nothing was accepted. If every probe died, the server itself is
+                // unreachable/sick, so report that instead of a data verdict.
+                if (probed > 0 && errored === probed) {
+                    finishWith("server", "Không kiểm tra được danh sách người dùng trên máy chủ xác thực. Vui lòng thử lại sau.");
+                    return;
+                }
+                finishUnknown();
+                return;
+            }
+            var candidate = candidates[index++];
+            jvhdProbeDigest(candidate.value, function (probeStatus) {
+                probed++;
+                jvhdUserDbg("diagnose probe " + candidate.label, "-> " + probeStatus);
+                if (probeStatus.indexOf("error") === 0) errored++;
+                if (probeStatus === "bind" || probeStatus === "challenge" || probeStatus === "ok") {
+                    if (candidate.label === "salt canonical") {
+                        finishWith("salt", "Salt.txt đang đọc sai giá trị nên hash bị lệch. Vui lòng khôi phục Salt.txt đúng (hoặc báo quản trị viên) rồi thử lại.");
+                    } else if (candidate.label === "native c0") {
+                        finishWith("client", "Hash của ứng dụng không khớp giá trị máy chủ đang nhận (lệch công thức băm). Vui lòng báo quản trị viên.");
+                    } else {
+                        // Control accepted -> the allowlist definitely works, so this
+                        // username really is not a valid one.
+                        finishWith("unknown", null);
+                    }
+                    return;
+                }
+                next();
+            });
+        }
+        if (!candidates.length) {
+            // No independent digest to probe (salt in use == canonical and no
+            // stored hash): fall back to the /health allowlist check.
+            finishUnknown();
+            return;
+        }
+        next();
     }
     function jvhdUserAuthFinishChecking() {
         jvhdUserChecking = false;
@@ -9057,19 +9357,34 @@
         var softStatus = document.getElementById("bintv-jvhd-user-status");
         if (softStatus) softStatus.textContent = message;
     }
-    function jvhdUserAuthNetworkError() {
+    // [JVHD-AUTH-FIX 2026-09 R2] Translate a transport/server failure into a
+    // message that says what actually happened. Never blames the username and
+    // never counts a failure that the user cannot fix.
+    function jvhdUserAuthNetworkError(fail) {
         // Mat mang/server khong tra loi: KHONG bao gio coi nhu thanh cong,
         // KHONG tang bo dem sai, KHONG bind moi.
         jvhdUserAuthFinishChecking();
         if (!jvhdUserGateOpen) return;
         var netStatus = document.getElementById("bintv-jvhd-user-status");
-        if (netStatus) netStatus.textContent = "Không kết nối được máy chủ xác thực, thử lại";
+        if (!netStatus) return;
+        var status = fail && typeof fail.status === "number" ? fail.status : 0;
+        jvhdUserDbg("network failure", (fail && fail.kind ? fail.kind : "?") + (status ? " HTTP " + status : "") + " " + (fail && fail.message ? fail.message : ""));
+        if (status === 400 || status === 404 || status === 405) {
+            netStatus.textContent = "Máy chủ xác thực trả lỗi " + status + " (giao thức không khớp). Vui lòng báo quản trị viên kiểm tra server.";
+        } else if (status === 401 || status === 403) {
+            netStatus.textContent = fail && fail.message ? ("Máy chủ từ chối: " + jvhdShort(fail.message, 120)) : "Máy chủ xác thực từ chối yêu cầu (HTTP " + status + ").";
+        } else if (status >= 500) {
+            netStatus.textContent = "Máy chủ xác thực đang gặp sự cố. Vui lòng thử lại sau. (HTTP " + status + ")";
+        } else {
+            // Offline / timeout / malformed body: never claims the username is wrong.
+            netStatus.textContent = "Không thể kết nối đến máy chủ xác thực. Vui lòng kiểm tra lại mạng.";
+        }
     }
-    function jvhdUserAuthHardError() {
+    function jvhdUserAuthHardError(detail) {
         jvhdUserAuthFinishChecking();
         if (!jvhdUserGateOpen) return;
         var hardStatus = document.getElementById("bintv-jvhd-user-status");
-        if (hardStatus) hardStatus.textContent = "Thiết bị không hỗ trợ xác thực, không thể tiếp tục";
+        if (hardStatus) hardStatus.textContent = "Thiết bị không hỗ trợ xác thực, không thể tiếp tục" + (detail ? " (" + detail + ")" : "");
     }
 
     function submitJvhdUserGate() {
@@ -9106,6 +9421,9 @@
         var gate = document.getElementById("bintv-jvhd-user-gate");
         if (gate) gate.classList.add("busy");
         if (status) status.textContent = "Đang kiểm tra…";
+        // [JVHD-AUTH-FIX 2026-09 R2] dev trace: the digest is a one-way hash of
+        // the username, never the username itself; the salt value is never logged.
+        jvhdUserDbg("submit", "user='" + jvhdShort(name, 40) + "' h=" + jvhdShort(digest, 12) + "… saltSource=" + jvhdUserSaltSource());
         jvhdUserAuthRequest("/auth/start", { h: digest }, function (r) {
             if (!jvhdUserGateOpen) return;
             if (r && r.status === "bind") {
@@ -9115,9 +9433,13 @@
                 if (!devicePub || !bindSig) { jvhdUserAuthHardError(); return; }
                 jvhdUserAuthRequest("/auth/bind", { h: digest, k: devicePub, nonce: r.nonce, sig: bindSig }, function (b) {
                     if (!jvhdUserGateOpen) return;
-                    if (b && b.status === "ok") { jvhdUserAuthSuccess(digest); return; }
-                    if (b && b.status === "denied") { jvhdUserAuthFail("Tài khoản đã được gắn với thiết bị khác"); return; }
-                    jvhdUserAuthSoftError("Phiên xác thực hết hạn, vui lòng thử lại");
+                    var bindStatus = jvhdAuthStatusOf(b);
+                    if (bindStatus === "ok") { jvhdUserAuthSuccess(digest); return; }
+                    if (bindStatus === "denied") { jvhdUserAuthFail("Tài khoản đã được gắn với thiết bị khác"); return; }
+                    if (bindStatus === "unavailable") { jvhdUserAuthSoftError("Máy chủ xác thực đang gặp sự cố khi lưu thiết bị. Vui lòng thử lại sau."); return; }
+                    // Honest message: say the session ended and that it is retryable
+                    // (never claim the username/device is wrong here).
+                    jvhdUserAuthSoftError("Không hoàn tất được đăng ký thiết bị (phản hồi: " + jvhdShort(JSON.stringify(b), 80) + "). Vui lòng thử lại.");
                 }, jvhdUserAuthNetworkError);
             } else if (r && r.status === "challenge") {
                 // Da bind: chung minh dung device da dang ky bang chu ky (private
@@ -9126,14 +9448,40 @@
                 if (!sig) { jvhdUserAuthHardError(); return; }
                 jvhdUserAuthRequest("/auth/verify", { h: digest, sig: sig }, function (v) {
                     if (!jvhdUserGateOpen) return;
-                    if (v && v.status === "ok") { jvhdUserAuthSuccess(digest); return; }
-                    if (v && v.status === "denied") { jvhdUserAuthFail("Thiết bị không khớp thiết bị đã đăng ký"); return; }
-                    jvhdUserAuthSoftError("Phiên xác thực hết hạn, vui lòng thử lại");
+                    var verifyStatus = jvhdAuthStatusOf(v);
+                    if (verifyStatus === "ok") { jvhdUserAuthSuccess(digest); return; }
+                    if (verifyStatus === "denied") { jvhdUserAuthFail("Thiết bị không khớp thiết bị đã đăng ký"); return; }
+                    if (verifyStatus === "unavailable") { jvhdUserAuthSoftError("Máy chủ xác thực đang gặp sự cố khi kiểm tra thiết bị. Vui lòng thử lại sau."); return; }
+                    jvhdUserAuthSoftError("Phiên xác thực hết hạn hoặc phản hồi không hợp lệ (phản hồi: " + jvhdShort(JSON.stringify(v), 80) + "), vui lòng thử lại.");
                 }, jvhdUserAuthNetworkError);
             } else {
-                // unknown = username khong trong danh sach (hoac server khong xac
-                // minh duoc) -> DENY + tang bo dem sai.
-                jvhdUserAuthFail("Tên người dùng không đúng");
+                // [JVHD-AUTH-FIX 2026-09 R2] The protocol answers bind/challenge
+                // for a usable digest and ACCEPTS ok here when an alternative
+                // backend replies with a success boolean/token instead.
+                var startStatus = jvhdAuthStatusOf(r);
+                if (startStatus === "ok") { jvhdUserAuthSuccess(digest); return; }
+                if (startStatus === "denied") { jvhdUserAuthFail("Tài khoản đã được gắn với thiết bị khác"); return; }
+                if (startStatus === "bad") { jvhdUserAuthSoftError("Dữ liệu xác thực không hợp lệ, vui lòng thử lại"); return; }
+                // unknown / unavailable: diagnose WHY before showing anything, so
+                // the message never falsely claims the username is wrong.
+                jvhdUserAuthDiagnose(name, digest, r, function (diag) {
+                    if (!jvhdUserGateOpen) return;
+                    if (diag && (diag.code === "server" || diag.code === "client")) {
+                        // Server/allowlist problem: cannot be fixed by the user, so
+                        // show the real cause and do NOT add to the fail counter.
+                        jvhdUserAuthSoftError(diag.message);
+                        return;
+                    }
+                    if (diag && diag.code === "salt") {
+                        // Salt.txt is wrong: actionable, so it counts as a failed
+                        // attempt (3 locks for 3 minutes) but says what to do.
+                        jvhdUserAuthFail(diag.message);
+                        return;
+                    }
+                    // Genuinely invalid credentials (or unverifiable): the only
+                    // case that names the credentials, as requested.
+                    jvhdUserAuthFail("Tên đăng nhập hoặc thông tin xác thực không hợp lệ.");
+                });
             }
         }, jvhdUserAuthNetworkError);
     }

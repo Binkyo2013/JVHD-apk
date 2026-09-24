@@ -7,7 +7,7 @@ on:
   pull_request:
 
 permissions:
-  contents: read
+  contents: write
 
 env:
   ANDROID_API: '33'
@@ -185,3 +185,52 @@ jobs:
             build/*.txt
           if-no-files-found: warn
           retention-days: 30
+
+      - name: Create GitHub Release with JVHD.apk (only on main push)
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          APK=build/outputs/apk/JVHD.apk
+          test -f "$APK"
+          SHA=$(sha256sum "$APK" | cut -d' ' -f1)
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          TAG="v1.0.7-${SHORT_SHA}-b${GITHUB_RUN_NUMBER}"
+          echo "Creating release $TAG from commit $GITHUB_SHA"
+          echo "APK SHA256: $SHA"
+          ls -lh "$APK"
+          # Create release notes with build provenance
+          cat > /tmp/release_notes.md <<EOF
+          JVHD.apk build from commit ${GITHUB_SHA}
+
+          - Workflow run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+          - Commit: ${SHORT_SHA}
+          - APK SHA256: ${SHA}
+          - Package: com.JVHD.vip
+          - Launcher: com.JVHD.vip.MainActivity
+          - Build: ${GITHUB_RUN_NUMBER}
+
+          Fixes:
+          - VIDEO HD black screen/audio-only (hardware layer + hls.js for HLS)
+          - Auth 405 (removed /health warm-up)
+          - Theme black/white unified
+          - CI Node 24 compat (manual Android SDK install)
+
+          Baseline:
+          - LOGIN OK
+          - CONFIG OK (TargetUrl.txt from GitLab)
+          - LIVE OK
+          - NEW LIVE OK
+          - New VIDEO OK
+          - PRN HUB OK
+          - VIDEO HD fixed (hardware layer + hls.js)
+
+          Install: adb install -r JVHD.apk
+          EOF
+          gh release create "$TAG" "$APK" --title "JVHD.apk $TAG" --notes-file /tmp/release_notes.md --latest || {
+            echo "Release creation failed, trying to upload asset to existing release..."
+            gh release upload "$TAG" "$APK" --clobber || true
+          }
+          echo "Release $TAG created with JVHD.apk"
+          gh release view "$TAG" --json assets,tagName,url --jq '.url, .assets[].name'

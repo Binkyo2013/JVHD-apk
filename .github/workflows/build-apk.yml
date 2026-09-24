@@ -21,22 +21,49 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android platform 33 and build-tools 34.0.0
+      - name: Set up Android SDK (manual - replaces android-actions/setup-android@v3 which fails on Node 24)
         run: |
           set -euo pipefail
-          sdkmanager --install "platform-tools" "platforms;android-${ANDROID_API}" "build-tools;${ANDROID_BUILD_TOOLS}"
+          export ANDROID_HOME="${HOME}/android-sdk"
+          export ANDROID_SDK_ROOT="${ANDROID_HOME}"
+          mkdir -p "${ANDROID_HOME}/cmdline-tools"
+          cd /tmp
+          echo "Downloading Android commandline-tools..."
+          # Use latest commandline-tools (11076708) - stable URL
+          curl -fsSL -o cmdline-tools.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+          rm -rf "${ANDROID_HOME}/cmdline-tools/latest"
+          unzip -q cmdline-tools.zip -d "${ANDROID_HOME}/cmdline-tools"
+          mv "${ANDROID_HOME}/cmdline-tools/cmdline-tools" "${ANDROID_HOME}/cmdline-tools/latest"
+          rm -f cmdline-tools.zip
+          export PATH="${ANDROID_HOME}/cmdline-tools/latest/bin:${ANDROID_HOME}/platform-tools:${PATH}"
+          echo "ANDROID_HOME=${ANDROID_HOME}" >> "${GITHUB_ENV}"
+          echo "ANDROID_SDK_ROOT=${ANDROID_HOME}" >> "${GITHUB_ENV}"
+          echo "${ANDROID_HOME}/cmdline-tools/latest/bin" >> "${GITHUB_PATH}"
+          echo "${ANDROID_HOME}/platform-tools" >> "${GITHUB_PATH}"
+          echo "sdkmanager version: $(sdkmanager --version)"
           yes | sdkmanager --licenses >/dev/null || true
+          echo "Installing platform-tools, platforms;android-${ANDROID_API}, build-tools;${ANDROID_BUILD_TOOLS}..."
+          sdkmanager --install "platform-tools" "platforms;android-${ANDROID_API}" "build-tools;${ANDROID_BUILD_TOOLS}"
+          echo "${ANDROID_HOME}/build-tools/${ANDROID_BUILD_TOOLS}" >> "${GITHUB_PATH}"
+          ls -l "${ANDROID_HOME}/build-tools/${ANDROID_BUILD_TOOLS}/" | head -n 20
+          test -x "${ANDROID_HOME}/build-tools/${ANDROID_BUILD_TOOLS}/zipalign"
+          test -x "${ANDROID_HOME}/build-tools/${ANDROID_BUILD_TOOLS}/apksigner"
+          test -x "${ANDROID_HOME}/build-tools/${ANDROID_BUILD_TOOLS}/aapt2"
+          "${ANDROID_HOME}/build-tools/${ANDROID_BUILD_TOOLS}/aapt2" version
+
+      - name: Install Android platform 33 and build-tools 34.0.0 (verify)
+        run: |
+          set -euo pipefail
+          echo "ANDROID_HOME=${ANDROID_HOME}"
+          ls -l "${ANDROID_HOME}/build-tools/${ANDROID_BUILD_TOOLS}/" | head -n 20
           test -x "${ANDROID_HOME}/build-tools/${ANDROID_BUILD_TOOLS}/zipalign"
           test -x "${ANDROID_HOME}/build-tools/${ANDROID_BUILD_TOOLS}/apksigner"
           test -x "${ANDROID_HOME}/build-tools/${ANDROID_BUILD_TOOLS}/aapt2"
